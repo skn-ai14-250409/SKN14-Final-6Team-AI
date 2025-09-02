@@ -15,6 +15,10 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 from dataclasses import asdict
 
+# 상대 경로로 graph_interfaces 임포트
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from graph_interfaces import ChatState
 
 logger = logging.getLogger("F_HANDOFF_END")

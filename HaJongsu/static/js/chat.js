@@ -65,7 +65,7 @@ class ChatBot {
 
         try {
             // API 호출
-            const response = await fetch('/api/chat/', {
+            const response = await fetch('/api/chat', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -85,7 +85,7 @@ class ChatBot {
                 this.updateSidebar(data);
                 this.updateSessionInfo(data.metadata);
             } else {
-                throw new Error(data.error || 'API 호출 실패');
+                throw new Error(data.detail || 'API 호출 실패');
             }
 
         } catch (error) {
@@ -99,32 +99,28 @@ class ChatBot {
     addMessage(content, sender, isError = false) {
         const messagesContainer = document.getElementById('messages');
         const messageDiv = document.createElement('div');
-        messageDiv.className = 'message-animation mb-4';
+        messageDiv.className = 'mb-4 message-animation';
 
         if (sender === 'user') {
             messageDiv.innerHTML = `
-                <div class="flex items-start justify-end">
-                    <div class="bg-green-600 text-white rounded-2xl rounded-tr-sm px-4 py-3 max-w-md">
-                        <p>${this.escapeHtml(content)}</p>
-                        <span class="text-xs text-green-100 block mt-1">${new Date().toLocaleTimeString('ko-KR', {hour: '2-digit', minute:'2-digit'})}</span>
+                <div class="flex items-end justify-end">
+                    <div class="message-bubble-user mr-2">
+                        ${this.escapeHtml(content)}
                     </div>
-                    <div class="w-8 h-8 bg-green-600 rounded-full flex items-center justify-center ml-3 flex-shrink-0">
+                    <div class="w-8 h-8 bg-green-600 rounded-full flex items-center justify-center flex-shrink-0">
                         <i class="fas fa-user text-white text-sm"></i>
                     </div>
                 </div>
             `;
         } else {
-            const bgColor = isError ? 'bg-red-50' : 'bg-green-50';
-            const iconColor = isError ? 'text-red-600' : 'text-green-600';
-            
+            const errorClass = isError ? 'error' : '';
             messageDiv.innerHTML = `
                 <div class="flex items-start">
                     <div class="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center mr-3 flex-shrink-0">
-                        <i class="fas fa-robot ${iconColor} text-sm"></i>
+                        <i class="fas fa-robot text-green-600 text-sm"></i>
                     </div>
-                    <div class="${bgColor} rounded-2xl rounded-tl-sm px-4 py-3 max-w-md">
-                        <div>${this.formatBotMessage(content)}</div>
-                        <span class="text-xs text-gray-500 block mt-1">${new Date().toLocaleTimeString('ko-KR', {hour: '2-digit', minute:'2-digit'})}</span>
+                    <div class="message-bubble-bot ${errorClass}">
+                        ${this.formatBotMessage(content)}
                     </div>
                 </div>
             `;
@@ -135,92 +131,14 @@ class ChatBot {
     }
 
     formatBotMessage(content) {
-        // 간단한 마크다운 스타일 적용
-        return content
-            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-            .replace(/\*(.*?)\*/g, '<em>$1</em>')
-            .replace(/\n/g, '<br>')
-            .replace(/📋|🎉|🚚|💰|✅|🥬|🍎|✨|🛒|🔍|🌱|🥗/g, '<span class="text-lg">$&</span>');
-    }
-
-    updateSidebar(data) {
-        // 상품 정보 업데이트 (모의)
-        if (data.current_step && data.current_step.includes('products_found')) {
-            this.showProductsSection();
-        }
-
-        // 장바구니 업데이트 (모의)
-        if (data.current_step && data.current_step.includes('cart_updated')) {
-            this.showCartSection();
-        }
-
-        // 주문 정보 업데이트 (모의)
-        if (data.artifacts && data.artifacts.some(a => a.type === 'receipt')) {
-            this.showOrderSection(data.artifacts.find(a => a.type === 'receipt'));
-        }
-    }
-
-    showProductsSection() {
-        const section = document.getElementById('productsSection');
-        const productsList = document.getElementById('productsList');
+        // URL 링크 포맷팅
+        const urlRegex = /(https?:\/\/[^\s]+)/g;
+        content = content.replace(urlRegex, '<a href="$1" target="_blank" class="text-blue-600 hover:underline">$1</a>');
         
-        // 모의 상품 데이터
-        const mockProducts = [
-            { name: '유기농 사과', price: '6,000원', origin: '경북 안동', stock: '충분' },
-            { name: '친환경 바나나', price: '4,000원', origin: '필리핀', stock: '5개 남음' }
-        ];
-
-        productsList.innerHTML = mockProducts.map(product => `
-            <div class="product-card bg-white rounded-lg p-3 border cursor-pointer">
-                <div class="flex justify-between items-start mb-2">
-                    <h4 class="font-medium text-gray-800">${product.name}</h4>
-                    <span class="text-green-600 font-bold">${product.price}</span>
-                </div>
-                <p class="text-sm text-gray-600">원산지: ${product.origin}</p>
-                <p class="text-xs text-blue-600 mt-1">재고: ${product.stock}</p>
-                <button class="mt-2 w-full bg-green-100 text-green-800 py-1 px-2 rounded text-sm hover:bg-green-200 transition">
-                    장바구니 담기
-                </button>
-            </div>
-        `).join('');
-
-        section.classList.remove('hidden');
-    }
-
-    showCartSection() {
-        const section = document.getElementById('cartSection');
-        const cartCount = document.getElementById('cartCount');
-        const totalAmount = document.getElementById('totalAmount');
+        // 줄바꿈 처리
+        content = content.replace(/\n/g, '<br>');
         
-        // 모의 장바구니 업데이트
-        cartCount.textContent = '2';
-        totalAmount.textContent = '10,000원';
-        
-        section.classList.remove('hidden');
-    }
-
-    showOrderSection(receiptData) {
-        const section = document.getElementById('orderSection');
-        const orderInfo = document.getElementById('orderInfo');
-        
-        orderInfo.innerHTML = `
-            <div class="space-y-2">
-                <div class="flex justify-between">
-                    <span class="text-sm text-gray-600">주문번호:</span>
-                    <span class="text-sm font-medium">${receiptData.data.order_id || 'ORD_12345'}</span>
-                </div>
-                <div class="flex justify-between">
-                    <span class="text-sm text-gray-600">총 금액:</span>
-                    <span class="text-sm font-medium text-green-600">${receiptData.data.total_amount || '10,000'}원</span>
-                </div>
-                <div class="flex justify-between">
-                    <span class="text-sm text-gray-600">주문일:</span>
-                    <span class="text-sm font-medium">${new Date().toLocaleDateString('ko-KR')}</span>
-                </div>
-            </div>
-        `;
-        
-        section.classList.remove('hidden');
+        return content;
     }
 
     showTyping() {
@@ -237,26 +155,176 @@ class ChatBot {
         container.scrollTop = container.scrollHeight;
     }
 
+    updateSidebar(data) {
+        // 상품 목록 업데이트
+        if (data.search && data.search.candidates) {
+            this.updateProductsList(data.search.candidates);
+        }
+
+        // 레시피 정보 업데이트
+        if (data.recipe) {
+            this.updateRecipesList(data.recipe);
+        }
+
+        // 장바구니 업데이트
+        if (data.cart) {
+            this.updateCart(data.cart);
+        }
+
+        // 주문 정보 업데이트
+        if (data.order) {
+            this.updateOrderInfo(data.order);
+        }
+    }
+
+    updateProductsList(products) {
+        const productsList = document.getElementById('productsList');
+        const productsSection = document.getElementById('productsSection');
+        
+        if (!products || products.length === 0) {
+            productsSection.classList.add('hidden');
+            return;
+        }
+
+        productsSection.classList.remove('hidden');
+        productsList.innerHTML = '';
+
+        products.slice(0, 5).forEach(product => {
+            const productCard = document.createElement('div');
+            productCard.className = 'product-card bg-white rounded-lg p-3 border hover:shadow-md transition cursor-pointer';
+            productCard.innerHTML = `
+                <div class="flex items-center justify-between">
+                    <div class="flex-1">
+                        <h4 class="font-medium text-sm text-gray-800">${this.escapeHtml(product.product || product.name)}</h4>
+                        <p class="text-xs text-gray-500 mt-1">${this.escapeHtml(product.origin || '원산지 정보 없음')}</p>
+                        <p class="text-green-600 font-bold text-sm mt-1">${this.formatPrice(product.price)}원</p>
+                    </div>
+                    <button class="add-to-cart bg-green-100 text-green-600 px-2 py-1 rounded text-xs hover:bg-green-200" 
+                            data-product='${JSON.stringify(product)}'>
+                        담기
+                    </button>
+                </div>
+            `;
+            
+            // 장바구니 담기 이벤트
+            productCard.querySelector('.add-to-cart').addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.addToCartFromSidebar(product);
+            });
+            
+            productsList.appendChild(productCard);
+        });
+    }
+
+    updateRecipesList(recipe) {
+        const recipesList = document.getElementById('recipesList');
+        const recipesSection = document.getElementById('recipesSection');
+        
+        if (!recipe) {
+            recipesSection.classList.add('hidden');
+            return;
+        }
+
+        recipesSection.classList.remove('hidden');
+        recipesList.innerHTML = `
+            <div class="recipe-card rounded-lg p-3 text-sm">
+                <h4 class="font-semibold text-gray-800 mb-2">${this.escapeHtml(recipe.name || '레시피')}</h4>
+                <p class="text-gray-600 mb-2">${this.escapeHtml(recipe.description || '')}</p>
+                ${recipe.url ? `<a href="${recipe.url}" target="_blank" class="text-blue-600 text-xs hover:underline">전체 레시피 보기</a>` : ''}
+            </div>
+        `;
+    }
+
+    updateCart(cart) {
+        const cartItems = document.getElementById('cartItems');
+        const cartSection = document.getElementById('cartSection');
+        const cartCount = document.getElementById('cartCount');
+        const totalAmount = document.getElementById('totalAmount');
+
+        if (!cart || !cart.items || cart.items.length === 0) {
+            cartSection.classList.add('hidden');
+            return;
+        }
+
+        cartSection.classList.remove('hidden');
+        cartCount.textContent = cart.items.length;
+        cartItems.innerHTML = '';
+
+        cart.items.forEach((item, index) => {
+            const itemDiv = document.createElement('div');
+            itemDiv.className = 'flex items-center justify-between bg-white rounded p-2 text-sm';
+            itemDiv.innerHTML = `
+                <div class="flex-1">
+                    <span class="font-medium">${this.escapeHtml(item.name)}</span>
+                    <div class="text-xs text-gray-500">${item.quantity}개 × ${this.formatPrice(item.price)}원</div>
+                </div>
+                <button class="remove-item text-red-500 hover:text-red-700 text-xs" data-index="${index}">
+                    <i class="fas fa-times"></i>
+                </button>
+            `;
+            
+            // 상품 제거 이벤트
+            itemDiv.querySelector('.remove-item').addEventListener('click', () => {
+                this.removeFromCart(index);
+            });
+            
+            cartItems.appendChild(itemDiv);
+        });
+
+        totalAmount.textContent = this.formatPrice(cart.total) + '원';
+    }
+
+    updateOrderInfo(order) {
+        const orderInfo = document.getElementById('orderInfo');
+        const orderSection = document.getElementById('orderSection');
+        
+        if (!order) {
+            orderSection.classList.add('hidden');
+            return;
+        }
+
+        orderSection.classList.remove('hidden');
+        orderInfo.innerHTML = `
+            <div class="text-sm">
+                <p><strong>주문번호:</strong> ${order.order_code || 'N/A'}</p>
+                <p><strong>총 금액:</strong> ${this.formatPrice(order.total_price)}원</p>
+                <p><strong>주문 상태:</strong> <span class="text-blue-600">${order.status || '대기중'}</span></p>
+            </div>
+        `;
+    }
+
+    addToCartFromSidebar(product) {
+        // 실제로는 서버에 장바구니 추가 API를 호출해야 함
+        const message = `${product.product || product.name} 장바구니에 담아주세요`;
+        document.getElementById('messageInput').value = message;
+        this.sendMessage();
+    }
+
+    removeFromCart(index) {
+        // 실제로는 서버에 장바구니 제거 API를 호출해야 함
+        const message = `장바구니에서 ${index + 1}번째 상품을 제거해주세요`;
+        document.getElementById('messageInput').value = message;
+        this.sendMessage();
+    }
+
     updateSessionInfo(metadata) {
         const sessionInfo = document.getElementById('sessionInfo');
-        if (metadata && metadata.message_count) {
-            sessionInfo.textContent = `${metadata.message_count}개 메시지`;
-        } else {
-            sessionInfo.textContent = '새로운 세션';
+        if (metadata && metadata.session_id) {
+            sessionInfo.textContent = `세션: ${metadata.session_id.slice(-8)}`;
         }
     }
 
     clearChat() {
-        if (confirm('채팅을 초기화하시겠습니까?')) {
+        if (confirm('채팅 기록을 모두 지우시겠습니까?')) {
             document.getElementById('messages').innerHTML = '';
             this.sessionId = null;
             this.updateSessionInfo();
             
-            // 사이드바 초기화
+            // 사이드바도 초기화
             document.getElementById('productsSection').classList.add('hidden');
+            document.getElementById('recipesSection').classList.add('hidden');
             document.getElementById('cartSection').classList.add('hidden');
             document.getElementById('orderSection').classList.add('hidden');
-            document.getElementById('recipesSection').classList.add('hidden');
         }
     }
 
@@ -265,13 +333,16 @@ class ChatBot {
         div.textContent = text;
         return div.innerHTML;
     }
+
+    formatPrice(price) {
+        if (typeof price === 'string') {
+            price = parseFloat(price.replace(/[^\d]/g, ''));
+        }
+        return new Intl.NumberFormat('ko-KR').format(price);
+    }
 }
 
-// DOM 로드 완료 후 초기화
+// 페이지 로드 시 챗봇 초기화
 document.addEventListener('DOMContentLoaded', () => {
-    // 챗봇 인스턴스 생성
-    const chatBot = new ChatBot();
-    
-    // 메시지 입력 필드에 포커스
-    document.getElementById('messageInput').focus();
+    new ChatBot();
 });
