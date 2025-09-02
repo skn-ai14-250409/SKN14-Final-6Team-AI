@@ -1,6 +1,6 @@
 """
 cs_module.py — CS(고객지원) 관련 기능 구현
-팀 역할 E 담당: CS 접수, 이미지 분류, FAQ&Policy RAG
+팀 역할 E 담당 - 송유나: CS 접수, 이미지 분류, FAQ&Policy RAG
 
 주요 구현 함수:
 - cs_intake: CS 접수 및 이미지 분류
