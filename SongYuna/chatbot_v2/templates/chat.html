@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Qook 챗봇 - 신선한 대화</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="/static/css/chat.css" rel="stylesheet">
+</head>
+<body class="bg-gray-50">
+    <div class="flex h-screen">
+        <!-- 좌측 채팅 영역 -->
+        <div class="flex-1 flex flex-col bg-white">
+            <!-- 채팅 헤더 -->
+            <header class="fresh-gradient px-6 py-4 flex items-center justify-between">
+                <div class="flex items-center">
+                    <a href="/" class="text-white hover:text-yellow-300 transition mr-4">
+                        <i class="fas fa-arrow-left"></i>
+                    </a>
+                    <div class="flex items-center">
+                        <div class="w-10 h-10 bg-white rounded-full flex items-center justify-center mr-3">
+                            <i class="fas fa-robot text-green-600"></i>
+                        </div>
+                        <div>
+                            <h1 class="text-white font-bold text-lg">Qook 챗봇</h1>
+                            <p class="text-blue-100 text-sm">신선한 도움을 드릴게요! 🥬</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <button id="clearChat" class="text-white hover:text-yellow-300 transition p-2">
+                        <i class="fas fa-refresh"></i>
+                    </button>
+                    <div class="text-white text-sm">
+                        <span id="sessionInfo">새로운 세션</span>
+                    </div>
+                </div>
+            </header>
+
+            <!-- 채팅 메시지 영역 -->
+            <div class="flex-1 overflow-y-auto p-6 chat-container" id="chatContainer">
+                <!-- 환영 메시지 -->
+                <div class="message-animation mb-6">
+                    <div class="flex items-start">
+                        <div class="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center mr-3 flex-shrink-0">
+                            <i class="fas fa-robot text-green-600 text-sm"></i>
+                        </div>
+                        <div class="bg-green-50 rounded-2xl rounded-tl-sm px-4 py-3 max-w-md">
+                            <p class="text-gray-800">
+                                안녕하세요! 신선한 식재료를 찾고 계신가요? 🥬<br>
+                                <span class="text-sm text-gray-600 mt-1 block">
+                                    • "사과 주문하고 싶어요"<br>
+                                    • "김치찌개 레시피 알려주세요"<br>
+                                    • "배송 문의가 있어요"<br>
+                                    이런 식으로 편하게 말씀해주세요!
+                                </span>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 메시지들이 여기에 동적으로 추가됩니다 -->
+                <div id="messages"></div>
+
+                <!-- 타이핑 인디케이터 -->
+                <div id="typingIndicator" class="hidden mb-4">
+                    <div class="flex items-start">
+                        <div class="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center mr-3">
+                            <i class="fas fa-robot text-green-600 text-sm"></i>
+                        </div>
+                        <div class="bg-green-50 rounded-2xl rounded-tl-sm px-4 py-3">
+                            <div class="typing-indicator flex space-x-1">
+                                <div class="w-2 h-2 bg-green-400 rounded-full"></div>
+                                <div class="w-2 h-2 bg-green-400 rounded-full"></div>
+                                <div class="w-2 h-2 bg-green-400 rounded-full"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 채팅 입력 영역 -->
+            <div class="bg-white border-t border-gray-200 p-4">
+                <!-- 이미지 미리보기 영역 -->
+                <div id="imagePreview" class="hidden mb-4 p-3 bg-gray-50 rounded-lg border">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-sm text-gray-600 font-medium">첨부된 이미지:</span>
+                        <button type="button" id="removeImage" class="text-red-500 hover:text-red-700">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    <img id="previewImage" src="" alt="미리보기" class="max-w-full h-32 object-contain rounded">
+                </div>
+                
+                <form id="chatForm" class="flex items-center space-x-3">
+                    <!-- 이미지 업로드 버튼 -->
+                    <button 
+                        type="button" 
+                        id="imageUpload"
+                        class="bg-blue-500 text-white p-3 rounded-full hover:bg-blue-600 transition duration-300 flex-shrink-0"
+                        title="이미지 첨부"
+                    >
+                        <i class="fas fa-camera"></i>
+                    </button>
+                    <input type="file" id="imageInput" accept="image/*" class="hidden">
+                    
+                    <div class="flex-1 relative">
+                        <input 
+                            type="text" 
+                            id="messageInput" 
+                            placeholder="메시지를 입력하세요..." 
+                            class="w-full px-4 py-3 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                            autocomplete="off"
+                        >
+                        <button type="button" id="voiceInput" class="absolute right-3 top-3 text-gray-400 hover:text-green-600 transition">
+                            <i class="fas fa-microphone"></i>
+                        </button>
+                    </div>
+                    <button 
+                        type="submit" 
+                        id="sendButton"
+                        class="bg-green-600 text-white p-3 rounded-full hover:bg-green-700 transition duration-300 flex-shrink-0"
+                    >
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
+                </form>
+                <p class="text-xs text-gray-500 mt-2 text-center">
+                    Enter로 전송 • Shift+Enter로 줄바꿈
+                </p>
+            </div>
+        </div>
+
+        <!-- 우측 관련 내용 영역 -->
+        <div class="w-96 bg-gray-50 sidebar-shadow overflow-y-auto">
+            <!-- 사이드바 헤더 -->
+            <div class="bg-white border-b border-gray-200 p-4">
+                <h2 class="font-bold text-gray-800 flex items-center">
+                    <i class="fas fa-info-circle text-blue-500 mr-2"></i>
+                    관련 정보
+                </h2>
+            </div>
+
+            <!-- 관련 내용 섹션들 -->
+            <div class="p-4">
+                <!-- 상품 추천 섹션 -->
+                <div id="productsSection" class="hidden mb-6">
+                    <h3 class="font-semibold text-gray-700 mb-3 flex items-center">
+                        <i class="fas fa-shopping-basket text-green-600 mr-2"></i>
+                        추천 상품
+                    </h3>
+                    <div id="productsList" class="space-y-3">
+                        <!-- 상품들이 동적으로 추가됩니다 -->
+                    </div>
+                </div>
+
+                <!-- 레시피 섹션 -->
+                <div id="recipesSection" class="hidden mb-6">
+                    <h3 class="font-semibold text-gray-700 mb-3 flex items-center">
+                        <i class="fas fa-utensils text-yellow-600 mr-2"></i>
+                        레시피 정보
+                    </h3>
+                    <div id="recipesList" class="space-y-3">
+                        <!-- 레시피들이 동적으로 추가됩니다 -->
+                    </div>
+                </div>
+
+                <!-- 장바구니 섹션 -->
+                <div id="cartSection" class="hidden mb-6">
+                    <h3 class="font-semibold text-gray-700 mb-3 flex items-center">
+                        <i class="fas fa-shopping-cart text-purple-600 mr-2"></i>
+                        장바구니
+                        <span id="cartCount" class="bg-purple-100 text-purple-800 text-xs font-medium px-2 py-1 rounded-full ml-2">0</span>
+                    </h3>
+                    <div id="cartItems" class="space-y-2">
+                        <!-- 장바구니 아이템들이 동적으로 추가됩니다 -->
+                    </div>
+                    <div id="cartTotal" class="mt-3 pt-3 border-t border-gray-200">
+                        <div class="flex justify-between items-center font-semibold">
+                            <span>총 금액:</span>
+                            <span class="text-green-600" id="totalAmount">0원</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 주문 정보 섹션 -->
+                <div id="orderSection" class="hidden mb-6">
+                    <h3 class="font-semibold text-gray-700 mb-3 flex items-center">
+                        <i class="fas fa-receipt text-blue-600 mr-2"></i>
+                        주문 정보
+                    </h3>
+                    <div id="orderInfo" class="bg-blue-50 rounded-lg p-3">
+                        <!-- 주문 정보가 동적으로 추가됩니다 -->
+                    </div>
+                </div>
+
+                <!-- 빠른 액션 버튼들 -->
+                <div class="space-y-2">
+                    <button class="quick-action w-full text-left px-4 py-3 bg-white rounded-lg border hover:bg-green-50 hover:border-green-300 transition" data-message="인기 상품 추천해주세요">
+                        <i class="fas fa-fire text-red-500 mr-2"></i>
+                        인기 상품 보기
+                    </button>
+                    <button class="quick-action w-full text-left px-4 py-3 bg-white rounded-lg border hover:bg-blue-50 hover:border-blue-300 transition" data-message="오늘 저녁 레시피 추천해주세요">
+                        <i class="fas fa-utensils text-blue-500 mr-2"></i>
+                        레시피 추천
+                    </button>
+                    <button class="quick-action w-full text-left px-4 py-3 bg-white rounded-lg border hover:bg-yellow-50 hover:border-yellow-300 transition" data-message="배송 문의 있어요">
+                        <i class="fas fa-truck text-yellow-500 mr-2"></i>
+                        배송 문의
+                    </button>
+                    <button class="quick-action w-full text-left px-4 py-3 bg-white rounded-lg border hover:bg-purple-50 hover:border-purple-300 transition" data-message="장바구니 보여주세요">
+                        <i class="fas fa-shopping-cart text-purple-500 mr-2"></i>
+                        장바구니 확인
+                    </button>
+                </div>
+
+                <!-- 도움말 섹션 -->
+                <div class="mt-6 bg-gradient-to-r from-green-50 to-blue-50 rounded-lg p-4">
+                    <h4 class="font-semibold text-gray-700 mb-2 flex items-center">
+                        <i class="fas fa-lightbulb text-yellow-500 mr-2"></i>
+                        사용 팁
+                    </h4>
+                    <ul class="text-sm text-gray-600 space-y-1">
+                        <li>• 자연어로 편하게 대화하세요</li>
+                        <li>• "유기농", "비건" 등 특별한 요구사항도 말씀하세요</li>
+                        <li>• 레시피명을 말하면 재료를 추천드려요</li>
+                        <li>• 문제가 있으면 바로 문의해주세요</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript -->
+    <script src="/static/js/chat.js"></script>
+</body>
+</html>
