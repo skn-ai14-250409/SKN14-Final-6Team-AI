@@ -7,7 +7,12 @@
       "Bash(pip install:*)",
       "Bash(dir:*)",
       "Bash(find:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(mysql:*)",
+      "Bash(net start:*)",
+      "Bash(sc query:*)",
+      "Bash(net stop:*)",
+      "Bash(grep:*)"
     ],
     "deny": [],
     "ask": []

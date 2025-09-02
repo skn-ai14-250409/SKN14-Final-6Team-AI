@@ -1,3 +1,4 @@
+-- Active: 1753665104669@@127.0.0.1@3306@djangodb
 -- Qook 신선식품 챗봇 데이터베이스 설정
 -- 데이터베이스 생성 및 사용자 설정
 
@@ -129,9 +130,33 @@ CREATE TABLE faq_tbl (
     faq_category VARCHAR(100)
 );
 
+-- 채팅 세션 테이블 (추가)
+CREATE TABLE chat_sessions (
+    session_id VARCHAR(50) PRIMARY KEY,
+    user_id VARCHAR(50),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    status ENUM('active', 'completed', 'timeout') DEFAULT 'active',
+    FOREIGN KEY (user_id) REFERENCES userinfo_tbl(user_id)
+);
+
+-- 채팅 상태 추적 테이블 (추가)
+CREATE TABLE chat_state (
+    session_id VARCHAR(50) PRIMARY KEY,
+    current_step VARCHAR(50),
+    route_type ENUM('search_order', 'cs') DEFAULT 'search_order',
+    query_data JSON,
+    cart_data JSON,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (session_id) REFERENCES chat_sessions(session_id)
+);
+
 -- 인덱스 생성
 CREATE INDEX idx_userlog_user_time ON userlog_tbl(user_id, log_time);
 CREATE INDEX idx_history_log_time ON history_tbl(log_id, created_time);
 CREATE INDEX idx_order_user_date ON order_tbl(user_id, order_date);
 CREATE INDEX idx_product_category ON item_tbl(product);
 CREATE INDEX idx_faq_category ON faq_tbl(faq_category);
+CREATE INDEX idx_chat_sessions_user ON chat_sessions(user_id, created_at);
+CREATE INDEX idx_chat_state_step ON chat_state(current_step);
