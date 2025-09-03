@@ -18,7 +18,11 @@ logger = logging.getLogger("query_enhancer")
 @dataclass
 class SlotExtractionResult:
     """슬롯 추출 결과"""
-    quantity: Optional[int] = None
+    quantity: Optional[float] = None  # 사용자가 입력한 원본 수량
+    quantity_standard: Optional[float] = None  # 표준 단위로 변환된 수량 (동치 비교용)
+    unit_original: Optional[str] = None  # 사용자가 입력한 원본 단위 (예: "팩")
+    unit_standard: Optional[str] = None  # 표준화된 단위 (예: "ea") 
+    unit_category: Optional[str] = None  # 단위 카테고리 (예: "count")
     category: Optional[str] = None
     price_cap: Optional[int] = None
     delivery_window: Optional[str] = None
@@ -73,14 +77,33 @@ class QueryEnhancer:
             "음료": ["물", "차", "커피", "주스", "탄산수", "맥주", "와인"]
         }
     
-    def _init_unit_normalizer(self) -> Dict[str, str]:
-        """단위 정규화 매핑"""
+    def _init_unit_normalizer(self) -> Dict[str, Dict[str, str]]:
+        """단위 정규화 매핑 (원본 + 표준화 + 동치 변환)"""
         return {
-            "킬로": "kg", "키로": "kg", "kg": "kg",
-            "그램": "g", "g": "g",
-            "개": "개", "마리": "마리", "팩": "팩", "봉": "봉",
-            "리터": "L", "l": "L", "L": "L",
-            "병": "병", "캔": "캔", "상자": "상자"
+            # 중량 단위 (kg 기준으로 표준화)
+            "킬로": {"original": "킬로", "standard": "kg", "category": "weight", "to_standard": 1.0},
+            "키로": {"original": "키로", "standard": "kg", "category": "weight", "to_standard": 1.0}, 
+            "kg": {"original": "kg", "standard": "kg", "category": "weight", "to_standard": 1.0},
+            "그램": {"original": "그램", "standard": "kg", "category": "weight", "to_standard": 0.001},  # 1g = 0.001kg
+            "g": {"original": "g", "standard": "kg", "category": "weight", "to_standard": 0.001},
+            
+            # 부피 단위 (L 기준으로 표준화)
+            "리터": {"original": "리터", "standard": "L", "category": "volume", "to_standard": 1.0},
+            "l": {"original": "l", "standard": "L", "category": "volume", "to_standard": 1.0},
+            "L": {"original": "L", "standard": "L", "category": "volume", "to_standard": 1.0},
+            "ml": {"original": "ml", "standard": "L", "category": "volume", "to_standard": 0.001},  # 1ml = 0.001L
+            "mL": {"original": "mL", "standard": "L", "category": "volume", "to_standard": 0.001},
+            "ML": {"original": "ML", "standard": "L", "category": "volume", "to_standard": 0.001},
+            "밀리리터": {"original": "밀리리터", "standard": "L", "category": "volume", "to_standard": 0.001},
+            
+            # 개수 단위 (의미 보존 + ea 표준화, 변환 없음)
+            "개": {"original": "개", "standard": "ea", "category": "count", "to_standard": 1.0},
+            "마리": {"original": "마리", "standard": "ea", "category": "count", "to_standard": 1.0},
+            "팩": {"original": "팩", "standard": "ea", "category": "count", "to_standard": 1.0},
+            "봉": {"original": "봉", "standard": "ea", "category": "count", "to_standard": 1.0},
+            "병": {"original": "병", "standard": "ea", "category": "count", "to_standard": 1.0},
+            "캔": {"original": "캔", "standard": "ea", "category": "count", "to_standard": 1.0},
+            "상자": {"original": "상자", "standard": "ea", "category": "count", "to_standard": 1.0},
         }
 
     def enhance_query(self, state: ChatState) -> Dict[str, Any]:
@@ -149,15 +172,52 @@ class QueryEnhancer:
         """슬롯 정보 추출"""
         slots = SlotExtractionResult()
         
-        # 수량 추출
+        # 수량 추출 (소수점 지원 + 단위 정규화 + 동치 변환)
         quantity_patterns = [
-            r'(\d+)\s*(?:개|마리|팩|봉|kg|g|L)',
-            r'(\d+)\s*(?:킬로|키로|그램|리터)',
+            # 소수점 패턴: 0.5kg, 1.8L, 2.5개, 500ml 등
+            r'(\d*\.?\d+)\s*(개|마리|팩|봉|kg|g|L|킬로|키로|그램|리터|ml|mL|ML|밀리리터|병|캔|상자)',
         ]
         for pattern in quantity_patterns:
             match = re.search(pattern, query)
             if match:
-                slots.quantity = int(match.group(1))
+                # 문자열을 float로 변환 (소수점 지원)
+                quantity_str = match.group(1)
+                try:
+                    original_quantity = float(quantity_str)
+                    # 정수인 경우 .0 제거 (예: 2.0 -> 2)
+                    if original_quantity.is_integer():
+                        slots.quantity = int(original_quantity)
+                    else:
+                        slots.quantity = original_quantity
+                except ValueError:
+                    # 변환 실패 시 건너뛰기
+                    continue
+                    
+                original_unit = match.group(2)
+                
+                # 단위 정규화 및 동치 변환 적용
+                unit_info = self.unit_normalizer.get(original_unit)
+                if unit_info:
+                    slots.unit_original = unit_info['original']
+                    slots.unit_standard = unit_info['standard'] 
+                    slots.unit_category = unit_info['category']
+                    
+                    # 동치 변환 (500g -> 0.5kg, 1500ml -> 1.5L)
+                    conversion_factor = unit_info['to_standard']
+                    converted_quantity = original_quantity * conversion_factor
+                    
+                    # 변환된 수량도 정수 처리
+                    if converted_quantity.is_integer():
+                        slots.quantity_standard = int(converted_quantity)
+                    else:
+                        slots.quantity_standard = round(converted_quantity, 3)  # 소수점 3자리까지
+                        
+                else:
+                    # 정의되지 않은 단위는 원본 그대로
+                    slots.unit_original = original_unit
+                    slots.unit_standard = original_unit
+                    slots.unit_category = 'unknown'
+                    slots.quantity_standard = slots.quantity
                 break
         
         # 카테고리 추출
@@ -251,6 +311,14 @@ class QueryEnhancer:
         
         if slots.quantity is not None:
             result['quantity'] = slots.quantity
+        if slots.quantity_standard is not None:
+            result['quantity_standard'] = slots.quantity_standard  # 동치 비교용
+        if slots.unit_original:
+            result['unit_original'] = slots.unit_original
+        if slots.unit_standard:
+            result['unit_standard'] = slots.unit_standard  
+        if slots.unit_category:
+            result['unit_category'] = slots.unit_category
         if slots.category:
             result['category'] = slots.category  
         if slots.price_cap is not None:
