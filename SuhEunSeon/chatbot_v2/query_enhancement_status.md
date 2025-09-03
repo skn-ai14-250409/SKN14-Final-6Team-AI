@@ -20,10 +20,14 @@
   - 의도 명확화
 
 ### 2. 슬롯 추출 ✅  
-- **목적**: 구조화된 정보 추출
+- **목적**: 구조화된 정보 추출 (소수점 수량 지원)
 - **추출 가능한 슬롯**:
-  - `quantity`: 수량 (2팩, 1kg 등)
-  - `category`: 카테고리 (채소, 과일, 육류 등) 
+  - `quantity`: 원본 수량 (2팩, 1.5kg, 500g 등)
+  - `quantity_standard`: 표준 변환 수량 (동치 비교용: 500g→0.5kg)
+  - `unit_original`: 원본 단위 (사용자 표시용)
+  - `unit_standard`: 표준 단위 (시스템 처리용)
+  - `unit_category`: 단위 카테고리 (weight, volume, count)
+  - `category`: 상품 카테고리 (채소, 과일, 육류 등) 
   - `price_cap`: 예산 상한선
   - `delivery_window`: 배송창 (내일, 오전 등)
   - `dietary_restrictions`: 식이제한 (비건, 베지테리안 등)
@@ -47,9 +51,15 @@
   - 이메일: `user@example.com` → `[이메일]`
   - 카드번호: `1234-5678-9012-3456` → `[카드번호]`
 
-### 5. 단위 정규화 ✅
-- **목적**: 다양한 단위 표현 통일
-- **지원**: kg/킬로/키로 → kg, 그램/g → g, 리터/L → L 등
+### 5. 고급 단위 처리 ✅
+- **목적**: 다양한 단위 표현 통일 및 동치 비교
+- **소수점 지원**: 0.5kg, 1.8L, 2.5개 등 소수점 수량 인식
+- **mL 단위 추가**: ml, mL, ML, 밀리리터 모두 지원
+- **동치 변환**: 
+  - 중량: 500g ↔ 0.5kg (kg 표준화)
+  - 부피: 1500ml ↔ 1.5L (L 표준화)  
+  - 개수: 2팩 = 2ea (의미 보존 + ea 표준화)
+- **이중 저장**: 원본(사용자용) + 표준(시스템용) 동시 제공
 
 ## 입력/출력 인터페이스
 
@@ -70,7 +80,11 @@ ChatState(
         "masked": "신선한 상추 2팩 내일까지 받고싶어. 예산은 1만원 이하로"
     },
     "slots": {
-        "quantity": 2,
+        "quantity": 2,              # 원본 수량
+        "quantity_standard": 2,     # 표준 수량 (동치 비교용)
+        "unit_original": "팩",      # 원본 단위
+        "unit_standard": "ea",      # 표준 단위
+        "unit_category": "count",   # 단위 카테고리
         "category": "채소", 
         "price_cap": 10000,
         "delivery_window": "내일",
@@ -88,6 +102,14 @@ ChatState(
 4. **알러지 포함**: 알러지 정보 및 카테고리 추출 성공  
 5. **원산지 지정**: 원산지, 카테고리, 수량 추출 성공
 
+### 고급 단위 처리 테스트 ✅
+1. **소수점 수량**: 0.5kg, 1.8L, 2.5개 등 정확 추출
+2. **mL 단위**: ml, mL, ML, 밀리리터 모두 인식
+3. **동치 비교**: 
+   - 500g ↔ 0.5kg → 동일 (0.5 kg)
+   - 1500mL ↔ 1.5L → 동일 (1.5 L)
+   - 2000그램 ↔ 2킬로 → 동일 (2 kg)
+
 ### 경계 케이스 테스트
 - 빈 쿼리, 단일 단어, 숫자만, 특수문자, 긴 쿼리 모두 안전하게 처리
 
@@ -104,15 +126,21 @@ from graph_interfaces import ChatState
 
 # 상태 생성  
 state = ChatState()
-state.query = "유기농 토마토 1kg 주문하고 싶어요"
+state.query = "유기농 토마토 500g 주문하고 싶어요"
 
 # 쿼리 보강
 result = enhance_query(state)
 
 # 결과 활용
-keywords = result['rewrite']['keywords']  # C 역할에서 검색용
-category = result['slots']['category']    # 필터링용
-quantity = result['slots']['quantity']    # 재고 확인용
+keywords = result['rewrite']['keywords']              # C 역할에서 검색용
+category = result['slots']['category']                # 필터링용
+original_qty = result['slots']['quantity']            # 사용자 표시: 500
+standard_qty = result['slots']['quantity_standard']   # 시스템 처리: 0.5
+original_unit = result['slots']['unit_original']      # 사용자 표시: "g"  
+standard_unit = result['slots']['unit_standard']      # 시스템 처리: "kg"
+
+# 동치 비교 활용
+# "토마토 500g"과 "토마토 0.5kg"이 같은 상품으로 매칭됨
 ```
 
 ## 향후 개선 사항
@@ -123,4 +151,5 @@ quantity = result['slots']['quantity']    # 재고 확인용
 
 ---
 **구현 완료일**: 2025-09-02  
+**최종 업데이트**: 2025-09-02 (소수점 지원, mL 단위 추가, 동치 비교 기능 완료)  
 **구현자**: B 역할 담당자
