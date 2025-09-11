@@ -27,6 +27,30 @@ def get_user_orders_today(user_id: str) -> List[Dict[str, Any]]:
         if conn and conn.is_connected():
             conn.close()
 
+def get_user_orders_delivered_last_5_days(user_id: str) -> List[Dict[str, Any]]:
+    conn = get_db_connection()
+    if not conn:
+        return []
+    try:
+        with conn.cursor(dictionary=True) as cursor:
+            sql = """
+            SELECT o.order_code, o.user_id, o.order_date, o.total_price, o.order_status
+            FROM order_tbl o
+            WHERE o.user_id = %s
+              AND o.order_status = 'delivered'
+              AND o.order_date > (CURDATE() - INTERVAL 5 DAY)   -- 시작: 오늘-6일 00:00
+              AND o.order_date <  (CURDATE() + INTERVAL 1 DAY)   -- 끝: 내일 00:00 (오늘 포함)
+            ORDER BY o.order_date DESC
+            """
+            cursor.execute(sql, (user_id,))
+            return cursor.fetchall()
+    except Error as e:
+        logger.error(f"배송 내역 조회 실패: {e}")
+        return []
+    finally:
+        if conn and conn.is_connected():
+            conn.close()
+
 
 def _get_order_products(order_code: str) -> List[Dict[str, Any]]:
     conn = get_db_connection()

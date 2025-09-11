@@ -6,6 +6,7 @@ import logging
 from decimal import Decimal
 from typing import Any
 from dotenv import load_dotenv
+from datetime import datetime
 
 import mysql.connector
 from mysql.connector import Error
@@ -22,6 +23,9 @@ DB_CONFIG = {
     "port": int(os.getenv("DB_PORT", "3306")),
 }
 
+CS_DEFECT_THRESHOLD = float(os.getenv("CS_DEFECT_THRESHOLD", "0.35"))
+CS_AUTO_ACCEPT_DEBUG = os.getenv("CS_AUTO_ACCEPT_DEBUG", "false").lower() == "true"
+CS_PRODUCT_MATCH_THRESHOLD = float(os.getenv("CS_PRODUCT_MATCH_THRESHOLD", "0.60"))
 
 def get_db_connection():
     try:
@@ -62,11 +66,6 @@ except Exception:
     logger.warning("Pinecone package not available.")
 
 
-CS_DEFECT_THRESHOLD = float(os.getenv("CS_DEFECT_THRESHOLD", "0.35"))
-CS_AUTO_ACCEPT_DEBUG = os.getenv("CS_AUTO_ACCEPT_DEBUG", "false").lower() == "true"
-CS_PRODUCT_MATCH_THRESHOLD = float(os.getenv("CS_PRODUCT_MATCH_THRESHOLD", "0.60"))
-
-
 def _to_float(val: Any) -> float:
     if val is None:
         return 0.0
@@ -96,3 +95,14 @@ def _to_int(val: Any) -> int:
         except Exception:
             return 0
 
+
+def _fmt_dt(d):
+    if isinstance(d, datetime):
+        return d.strftime("%Y-%m-%d %H:%M")
+    return str(d) if d is not None else ""
+
+
+def _fmt_date(d):
+    if isinstance(d, datetime):
+        return d.strftime("%Y-%m-%d")
+    return str(d) if d is not None else ""

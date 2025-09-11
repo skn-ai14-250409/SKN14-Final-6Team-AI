@@ -404,3 +404,6 @@ progress.md
 
 # .cluade 폴더 전체
 .cluade/
+
+# static/uploads 폴더 전체
+/uploads/evidence/
