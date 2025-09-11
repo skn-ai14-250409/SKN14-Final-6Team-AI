@@ -55,10 +55,17 @@ def _josa_eul_reul(word: str) -> str:
 # 인증 상태 확인 유틸
 async def get_current_user(request: Request):
     try:
+        # access_token 쿠키 확인
         token = request.cookies.get("access_token")
         if token and token.startswith("Bearer "):
             token = token[7:]
             return verify_token(token)
+        
+        # user_id 쿠키 확인 (로그인 시 설정됨)
+        user_id = request.cookies.get("user_id")
+        if user_id:
+            return user_id
+            
     except:
         pass
     return None
