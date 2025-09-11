@@ -381,6 +381,35 @@ async def get_auth_status(request: Request):
         logger.error(f"Auth status check error: {e}")
         return {"authenticated": False, "user_id": None}
 
+@app.get("/mypage", response_class=HTMLResponse)
+async def get_mypage(request: Request):
+    current_user = await get_current_user(request)
+    # if not current_user:
+    #     return templates.TemplateResponse("auth/login.html", {"request": request})
+    return templates.TemplateResponse("mypage.html", {
+        "request": request,
+        "current_user": current_user
+    })
+
+@app.get("/app", response_class=HTMLResponse)
+async def get_app_layout(request: Request):
+    current_user = await get_current_user(request)
+    return templates.TemplateResponse("app-layout.html", {
+        "request": request,
+        "current_user": current_user,
+        "page_title": "통합 앱"
+    })
+
+@app.get("/tab", response_class=HTMLResponse)
+async def get_tab_layout(request: Request):
+    current_user = await get_current_user(request)
+    return templates.TemplateResponse("tab-layout.html", {
+        "request": request,
+        "current_user": current_user,
+        "page_title": "Qook 서비스"
+    })
+
+
 # [MERGE] --- 일괄 담기 API ---
 class BulkCartAddRequest(BaseModel):
     user_id: str

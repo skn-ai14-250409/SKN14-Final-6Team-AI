@@ -12,6 +12,7 @@
   <!-- Page CSS -->
   <link href="/static/css/chat.css" rel="stylesheet">
   <link href="/static/css/markdown.css" rel="stylesheet">
+  <link href="/static/css/navigation.css" rel="stylesheet">
   <script src="/static/js/markdown.js"></script>
   <script src="/static/js/orders_api.js"></script>
   <script src="/static/js/cs_evidence.js"></script>
@@ -37,6 +38,16 @@
                 <h1 class="text-white font-bold text-lg">Qook 챗봇</h1>
                 <p class="text-blue-100 text-sm">신선한 도움을 드릴게요! 🥬</p>
               </div>
+            </div>
+            
+            <!-- 네비게이션 버튼 추가 -->
+            <div class="ml-8 flex items-center space-x-2">
+              <button id="navChatbot" class="nav-btn active px-4 py-2 bg-white bg-opacity-20 text-white rounded-lg font-medium transition duration-300 hover:bg-opacity-30">
+                <i class="fas fa-robot mr-2"></i>챗봇
+              </button>
+              <button id="navMypage" class="nav-btn px-4 py-2 text-white rounded-lg font-medium transition duration-300 hover:bg-white hover:bg-opacity-20" onclick="navigateToPage('/mypage')">
+                <i class="fas fa-user mr-2"></i>마이페이지
+              </button>
             </div>
           </div>
 
@@ -281,6 +292,7 @@
   </div>
 
   <!-- App JS -->
+  <script src="/static/js/navigation.js"></script>
   <script src="/static/js/chat.js"></script>
 
   <!-- 인증 관련 JavaScript -->
