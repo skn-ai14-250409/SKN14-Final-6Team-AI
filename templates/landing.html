@@ -31,15 +31,8 @@
                         <a href="#features" class="text-gray-600 hover:text-green-600 px-3 py-2 rounded-md text-sm font-medium">기능</a>
                         <a href="/membership" class="text-gray-600 hover:text-green-600 px-3 py-2 rounded-md text-sm font-medium">멤버십</a>
                         <a href="#how-it-works" class="text-gray-600 hover:text-green-600 px-3 py-2 rounded-md text-sm font-medium">사용방법</a>
-                        {% if current_user %}
-                            <a href="/chat" class="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 transition duration-300">챗봇 시작</a>
-                            <a href="/membership" class="text-gray-600 hover:text-green-600 px-3 py-2 rounded-md text-sm font-medium">멤버십</a>
-                            <a href="/auth/profile" class="text-gray-600 hover:text-green-600 px-3 py-2 rounded-md text-sm font-medium">프로필</a>
-                            <button onclick="logout()" class="text-gray-600 hover:text-red-600 px-3 py-2 rounded-md text-sm font-medium">로그아웃</button>
-                        {% else %}
-                            <a href="/login" class="text-gray-600 hover:text-green-600 px-3 py-2 rounded-md text-sm font-medium">로그인</a>
-                            <a href="/register" class="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 transition duration-300">회원가입</a>
-                        {% endif %}
+                        <a href="/login" class="text-gray-600 hover:text-green-600 px-3 py-2 rounded-md text-sm font-medium">로그인</a>
+                        <a href="/register" class="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 transition duration-300">회원가입</a>
                     </div>
                 </nav>
             </div>
