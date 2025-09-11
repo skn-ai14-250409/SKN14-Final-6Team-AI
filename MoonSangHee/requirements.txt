@@ -1,9 +1,0 @@
-# Django Core (기본 최소 구성)
-Django>=4.2.0,<5.0.0
-djangorestframework>=3.14.0
-
-# 유틸리티
-python-dotenv>=1.0.0
-
-# 개발도구
-black>=23.0.0
