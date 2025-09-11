@@ -264,6 +264,22 @@ async def chat_api(request: Request):
                 if name:
                     response_text = f"{name}{_josa_eul_reul(name)} {qty}개 장바구니에 담았습니다."
 
+        # ✅ Handoff 메시지 우선 처리
+        def _as_dict(obj):
+            # dict/객체 모두 안전하게 dict로 변환
+            return obj if isinstance(obj, dict) else getattr(obj, "__dict__", {}) or {}
+
+        state_dict = _as_dict(final_state)
+        handoff = _as_dict(state_dict.get("handoff"))
+
+        # handoff가 성공적으로 발송된 경우, handoff 내부의 message를 우선 사용
+        if not response_text and handoff.get("status") == "sent":
+            response_text = handoff.get("message")
+
+        # (옵션) 레거시 폴백: 어떤 노드가 최상위 `message`를 넣는 경우가 있을 때만 유지
+        if not response_text:
+            response_text = state_dict.get("message")
+
         # ✅ CS/RAG 응답 우선 반영
         if not response_text:
             cs_payload = getattr(final_state, "cs", {}) or {}
