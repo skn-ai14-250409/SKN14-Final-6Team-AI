@@ -18,6 +18,7 @@ from auth_system.kakao_address import kakao_router
 from cart_routes import router as cart_router
 from upload_routes import router as upload_router
 from orders_routes import orders_router
+from profile_routes import router as profile_router
 
 # [ADDED] CS/RAG 유틸 임포트
 from nodes.cs_orders import get_order_details as get_order_details_fn
@@ -40,6 +41,7 @@ app.include_router(kakao_router)
 app.include_router(cart_router)
 app.include_router(upload_router)
 app.include_router(orders_router)
+app.include_router(profile_router)
 
 # ---------------- 조사(을/를) 헬퍼 ----------------
 def _josa_eul_reul(word: str) -> str:
