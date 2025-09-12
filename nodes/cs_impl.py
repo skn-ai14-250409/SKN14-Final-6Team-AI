@@ -4,7 +4,7 @@ import uuid, unicodedata
 
 from graph_interfaces import ChatState
 from .cs_common import get_db_connection, logger, _fmt_date, _fmt_dt
-from .cs_orders import get_user_orders_today, get_order_details, get_user_orders_delivered_last_5_days
+from .cs_orders import get_user_orders_today, get_order_details, get_user_orders_last_5_days
 
 
 STATUS_BADGE = {
@@ -150,16 +150,17 @@ def cs_intake(state: ChatState) -> Dict[str, Any]:
             return handle_refund_history_request(state)
         
         r = (state.query or "").strip()
-        delivery_keywords = [
-            "배송 상태",
-            "배송",
-            "배송 문의",
-            "배송상태",
-            "배송문의",
+        order_keywords = [
+            "주문 내역",
+            "주문내역",
+            "주문",
+            "주문 내역 확인",
+            "주문내역확인",
+            "주문 내역 현황"
         ]
 
-        if any(r_ in r for r_ in delivery_keywords):
-            return handle_delivery_inquiry(state)
+        if any(r_ in r for r_ in order_keywords):
+            return handle_order_list_inquiry(state)
 
         category = _classify_cs_category(state.query, state.attachments)
         if any(k in q for k in ["환불", "교환", "반품"]):
@@ -219,12 +220,12 @@ def handle_refund_request(state: ChatState) -> Dict[str, Any]:
         return {"cs": {"message": "오늘 주문 중 이미 처리된 품목을 제외하면 환불 가능한 항목이 없습니다."}, "meta": {"next_step": "done"}}
     return {"cs": {"message": "환불하실 오늘자 주문을 선택해주세요.", "orders": ui_orders}, "meta": {"next_step": "await_order_selection"}}
 
-def handle_delivery_inquiry(state: ChatState) -> Dict[str, Any]:
+def handle_order_list_inquiry(state: ChatState) -> Dict[str, Any]:
 
-    delivers = get_user_orders_delivered_last_5_days(state.user_id)
+    delivers = get_user_orders_last_5_days(state.user_id)
 
     if not delivers:
-        return {"cs": {"message": "최근 5일 내 배송중이거나 완료된 주문이 없어요. 상담사가 도와드릴게요."}, "meta": {"next_step": "handoff"}}
+        return {"cs": {"message": "최근 5일 내 주문내역이 없어요."}, "meta": {"next_step": "handoff"}}
 
     ui_delivers = []
     for o in delivers:
@@ -242,7 +243,7 @@ def handle_delivery_inquiry(state: ChatState) -> Dict[str, Any]:
     # 프론트가 refund와 동일한 형태의 리스트 렌더링을 사용한다면 "orders" 키로 내려주는 게 가장 무난
     return {
         "cs": {
-            "message": "배송 문의하실 주문을 선택해주세요.",
+            "message": "확인하실 주문내역을 선택해주세요.",
             "orders": ui_delivers,
             "category": "배송",
             "list_type": "delivery",
