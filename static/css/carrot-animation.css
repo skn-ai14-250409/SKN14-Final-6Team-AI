@@ -25,11 +25,11 @@
 }
 
 .face {
-  width: 16px;
-  height: 16px;
+  width: 19px;
+  height: 19px;
   background: #FFE0BD;
   border-radius: 50%;
-  margin: 2px auto;
+  margin: 0.5px auto;
   position: relative;
   box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
@@ -40,7 +40,7 @@
   background: #000;
   border-radius: 50%;
   position: absolute;
-  top: 5px;
+  top: 7px;
   transform: translateZ(0);
   will-change: auto;
 }
@@ -68,22 +68,6 @@
   box-shadow: 0 2px 4px rgba(0,0,0,0.2);
 }
 
-.arm {
-  width: 6px;
-  height: 15px;
-  background: #FFE0BD;
-  position: absolute;
-  top: 18px;
-  border-radius: 3px;
-}
-.left-arm { 
-  left: 2px; 
-  animation: arm-swing 0.5s ease-in-out infinite alternate;
-}
-.right-arm { 
-  right: 2px; 
-  animation: arm-swing-pickaxe 0.5s ease-in-out infinite alternate-reverse;
-}
 
 .pickaxe {
   position: absolute;
@@ -166,24 +150,19 @@
   100% { left: 180px; }
 }
 
-@keyframes arm-swing {
-  0% { transform: rotate(-10deg); }
-  100% { transform: rotate(10deg); }
-}
-
 @keyframes arm-swing-pickaxe {
   0% { transform: rotate(-15deg); }
-  100% { transform: rotate(15deg); }
+  100% { transform: rotate(40deg); }
 }
 
 @keyframes pickaxe-swing {
-  0% { transform: rotate(-20deg); }
-  100% { transform: rotate(20deg); }
+  0% { transform: rotate(-30deg); }
+  100% { transform: rotate(60deg); }
 }
 
 @keyframes leg-walk {
-  0% { transform: rotate(-15deg); }
-  100% { transform: rotate(15deg); }
+  0% { transform: rotate(-20deg); }
+  100% { transform: rotate(20deg); }
 }
 
 @keyframes carrot-bounce {

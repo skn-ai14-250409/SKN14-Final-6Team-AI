@@ -295,10 +295,50 @@ def _search_with_tavily(query: str) -> List[Dict[str, Any]]:
                 logger.info(f"접근 불가능한 URL 제외: {url}")
                 continue
             
+            # LLM으로 title과 content를 20~30글자로 요약
+            original_title = res.get("title", "제목 없음")
+            content = res.get("content", "")
+            
+            # 기본값 설정
+            title = original_title[:30] + ("..." if len(original_title) > 30 else "")
+            description = content[:150]
+            
+            if openai_client and (original_title or content):
+                try:
+                    # 제목 요약
+                    if original_title:
+                        title_response = openai_client.chat.completions.create(
+                            model="gpt-4o-mini",
+                            messages=[
+                                {"role": "system", "content": "다음 레시피 제목을 30글자 내로 간단명료하게 요약해줘. 예시: '자취생도 쉽게 만드는 초간단 김치찌개 레시피' / '자꾸 땡기는 마약양념의 매콤한 닭볶음탕 조리법"},
+                                {"role": "user", "content": f"제목 요약: {original_title}"}
+                            ],
+                            temperature=0.1, max_tokens=20
+                        )
+                        title_summary = title_response.choices[0].message.content.strip()
+                        # 따옴표 제거
+                        title_summary = title_summary.strip('"').strip("'")
+                        title = title_summary[:30] + ("..." if len(title_summary) > 30 else "")
+                    
+                    # 내용 요약
+                    if content:
+                        desc_response = openai_client.chat.completions.create(
+                            model="gpt-4o-mini",
+                            messages=[
+                                {"role": "system", "content": "다음 레시피 내용을 20~30글자로 간단명료하게 요약해줘. 답변 예시 1: 김치·참치 볶아 두부 올린 매콤찌개 완성. 답변 예시 2: 닭고기 데쳐 채소 넣고 매콤하게 끓인 닭볶음탕"},
+                                {"role": "user", "content": f"요약: {content[:300]}"}
+                            ],
+                            temperature=0.1, max_tokens=30
+                        )
+                        desc_summary = desc_response.choices[0].message.content.strip()
+                        description = desc_summary[:30] + ("..." if len(desc_summary) > 30 else "")
+                except Exception:
+                    pass  # 오류시 기본값 사용
+
             validated_results.append({
-                "title": res.get("title", "제목 없음"),
+                "title": title,
                 "url": url,
-                "description": res.get("content", "")[:150]
+                "description": description            
             })
             
             # 원하는 개수(3개)만큼 찾으면 중단

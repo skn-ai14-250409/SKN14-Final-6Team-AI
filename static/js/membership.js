@@ -81,13 +81,75 @@
       try{
         setFeedback('선택을 적용 중입니다...', 'info');
         const result = await selectMembership(btn.dataset.name);
+        console.log('selectMembership 결과:', result); // 디버깅 로그 추가
         if (result && result.success){
           if (result.message) {
             // 이미 적용된 멤버십인 경우
             setFeedback(result.message, 'info');
           } else {
             // 새로운 멤버십이 적용된 경우
-            setFeedback('멤버십이 적용되었습니다. 장바구니 혜택이 반영됩니다.', 'success');
+            let countdown = 5;
+            const box = document.getElementById('feedback');
+            
+            // 당근 배송 애니메이션과 함께 카운트다운
+            box.className = 'mt-6 p-3 rounded';
+            box.classList.remove('hidden');
+            box.innerHTML = `
+              <div class="text-center">
+                <div class="mb-4 text-gray-700 text-lg font-semibold">멤버십이 적용되었습니다. ${countdown}초 후 챗봇으로 이동합니다.</div>
+                <div class="flex justify-center">
+                  <div class="delivery-scene">
+                    <!-- 농부 (기존 farmer 스타일 재사용) -->
+                    <div class="delivery-farmer farmer">
+                      <div class="hat"></div>
+                      <div class="face">
+                        <div class="eye left"></div>
+                        <div class="eye right"></div>
+                        <div class="mouth"></div>
+                      </div>
+                      <div class="body"></div>
+                    </div>
+                    
+                    <!-- 집과 사람 -->
+                    <div class="house-person">
+                      <div class="house">
+                        <div class="house-door"></div>
+                      </div>
+                      <div class="person">
+                        <div class="person-head"></div>
+                        <div class="person-body"></div>
+                      </div>
+                    </div>
+                    
+                    <!-- 배송 경로 -->
+                    <div class="delivery-path"></div>
+                    
+                    <!-- 배송되는 당근 -->
+                    <div class="delivery-carrot">
+                      <div class="carrot-body"></div>
+                      <div class="carrot-leaves">
+                        <div class="carrot-leaf"></div>
+                        <div class="carrot-leaf"></div>
+                        <div class="carrot-leaf"></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            `;
+            
+            const countdownTimer = setInterval(() => {
+              countdown--;
+              if (countdown > 0) {
+                const messageDiv = document.querySelector('#feedback .text-center > div:first-child');
+                if (messageDiv) {
+                  messageDiv.textContent = `멤버십이 적용되었습니다. ${countdown}초 후 챗봇으로 이동합니다.`;
+                }
+              } else {
+                clearInterval(countdownTimer);
+                window.location.href = '/chat';
+              }
+            }, 1000);
           }
         } else if (result && result.isAuthError) {
           // 인증 오류인 경우 로그인 페이지로 리다이렉트
@@ -114,7 +176,10 @@
         } else {
           setFeedback(result?.detail||'적용에 실패했습니다.', 'error');
         }
-      }catch(err){ setFeedback('네트워크 오류가 발생했습니다.', 'error'); }
+      }catch(err){ 
+        console.error('멤버십 선택 오류:', err); // 디버깅 로그 추가
+        setFeedback('네트워크 오류가 발생했습니다.', 'error'); 
+      }
     }, { once:false });
   }
   function escapeHtml(s){ const d=document.createElement('div'); d.textContent=String(s||''); return d.innerHTML; }
