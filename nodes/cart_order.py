@@ -1,5 +1,9 @@
+# 
+
 """
-cart_order.py — D팀: 카트 & 주문 (DB 연동 최종 버전)
+cart_order.py — D팀: 카트 & 주문 (DB 연동 최종 버전, 배송비 중복 계산 수정)
+- FIX 1: order_process()에서 subtotal을 state.cart["subtotal"] 또는 아이템 합계로 계산(배송비/할인 미포함)
+- FIX 2: _calculate_totals()의 무료배송 기준을 "할인 후 금액"으로 일치, 할인액은 int()로 계산해 스냅샷과 동일화
 """
 import logging
 import uuid
@@ -32,7 +36,8 @@ def view_cart(state: ChatState) -> Dict[str, Any]:
     logger.info(f"장바구니 조회 프로세스 시작: User '{state.user_id}'")
     user_id = state.user_id or 'anonymous'
     conn = get_db_connection()
-    if not conn: return {"meta": {"cart_error": "DB 연결 실패"}}
+    if not conn:
+        return {"meta": {"cart_error": "DB 연결 실패"}}
     
     try:
         with conn.cursor(dictionary=True) as cursor:
@@ -51,7 +56,8 @@ def view_cart(state: ChatState) -> Dict[str, Any]:
         logger.error(f"장바구니 조회 실패: {e}")
         return {"meta": {"cart_error": str(e)}}
     finally:
-        if conn and conn.is_connected(): conn.close()
+        if conn and conn.is_connected():
+            conn.close()
 
 # --- (신설/수정) 장바구니 수량 직접 업데이트 함수 ---
 def update_cart_item(user_id: str, product_name: str, quantity: int) -> Dict[str, Any]:
@@ -59,7 +65,8 @@ def update_cart_item(user_id: str, product_name: str, quantity: int) -> Dict[str
     logger.info(f"장바구니 직접 수정: User '{user_id}', Product '{product_name}', Quantity '{quantity}'")
     
     conn = get_db_connection()
-    if not conn: return {"error": "DB 연결 실패"}
+    if not conn:
+        return {"error": "DB 연결 실패"}
 
     try:
         with conn.cursor() as cursor:
@@ -89,7 +96,8 @@ def update_cart_item(user_id: str, product_name: str, quantity: int) -> Dict[str
         logger.error(f"장바구니 직접 수정 실패: {e}")
         return {"error": str(e)}
     finally:
-        if conn and conn.is_connected(): conn.close()
+        if conn and conn.is_connected():
+            conn.close()
 
     # 최종적으로 변경된 장바구니 상태를 다시 조회해서 반환
     temp_state = ChatState(user_id=user_id)
@@ -130,8 +138,8 @@ def cart_manage(state: ChatState) -> Dict[str, Any]:
                     "added_items": [{
                         "name": candidate.get("name") or candidate.get("sku") or "상품",
                         "quantity": quantity
-                    }]
-                },
+                    }]}
+                ,
                 "intent": "cart_add"
             }
     
@@ -206,24 +214,38 @@ def _add_to_cart(user_id: str, candidate: Dict[str, Any], quantity: int) -> Dict
             conn.close()
 
 def _calculate_totals(cart: Dict[str, Any], benefits: Optional[Dict[str, Any]] = None) -> None:
-    """장바구니 합계 계산 (DB에서 로드된 데이터를 기반으로)"""
+    """
+    장바구니 합계 계산 (DB에서 로드된 데이터를 기반으로)
+    - 무료배송 기준을 "할인 후 금액"으로 적용 (주문처리 스냅샷과 일치)
+    - 멤버십 할인액은 int()로 계산해 스냅샷과 동일한 반올림 규칙 유지
+    """
     subtotal = sum(float(item["unit_price"]) * int(item["qty"]) for item in cart.get("items", []))
     cart["subtotal"] = subtotal
-    discounts = []
+    discounts: List[Dict[str, Any]] = []
     rate = 0.0
     free_ship_threshold = 30000.0
     if benefits:
         rate = float(benefits.get("discount_rate", 0.0) or 0.0)
         free_ship_threshold = float(benefits.get("free_shipping_threshold", 30000) or 30000)
-    # 멤버십 상품할인
-    if rate > 0:
-        discounts.append({"type": "membership_discount", "amount": round(subtotal * rate), "description": f"멤버십 {int(rate*100)}% 할인"})
-    # 기본 배송비(정액 3000원) 표기
+
+    # 멤버십 상품할인 (원단위 버림)
+    membership_discount = int(subtotal * rate)
+    if membership_discount > 0:
+        discounts.append({
+            "type": "membership_discount",
+            "amount": membership_discount,
+            "description": f"멤버십 {int(rate*100)}% 할인"
+        })
+
+    # 기본 배송비(정액 3000원)
     shipping_fee = 3000
     cart["shipping_fee"] = shipping_fee
-    # 무료배송(정액 3000원 할인) 적용 기준
-    if subtotal >= free_ship_threshold:
+
+    # 무료배송(정액 3000원 할인) 적용 기준: 할인 후 금액 기준
+    effective_subtotal = subtotal - membership_discount
+    if effective_subtotal >= free_ship_threshold:
         discounts.append({"type": "free_shipping", "amount": 3000, "description": "무료배송"})
+
     cart["discounts"] = discounts
     total_discount = sum(d["amount"] for d in discounts)
     cart["total"] = max(0, subtotal + shipping_fee - total_discount)
@@ -249,7 +271,11 @@ def _get_membership_benefits(user_id: str) -> Dict[str, Any]:
             name = row.get("membership_name") or "basic"
             rate = float(row.get("discount_rate") or 0.0)
             thr = float(row.get("free_shipping_threshold") or 30000)
-            return {"discount_rate": rate, "free_shipping_threshold": thr, "meta": {"membership_name": name, "discount_rate": rate, "free_shipping_threshold": thr}}
+            return {
+                "discount_rate": rate,
+                "free_shipping_threshold": thr,
+                "meta": {"membership_name": name, "discount_rate": rate, "free_shipping_threshold": thr}
+            }
     except Error:
         return {"discount_rate": 0.0, "free_shipping_threshold": 30000, "meta": {"membership_name": "basic"}}
     finally:
@@ -278,7 +304,7 @@ def checkout(state: ChatState) -> Dict[str, Any]:
 
 def _extract_selected_items_for_checkout(state: ChatState) -> List[Dict[str, Any]]:
     """사용자 쿼리에서 특정 상품명을 추출하여 장바구니에서 해당 상품만 반환"""
-    query = state.query.lower()
+    query = (state.query or "").lower()
     cart_items = state.cart.get("items", [])
     
     # 결제 키워드 제거하여 상품명만 추출
@@ -286,14 +312,12 @@ def _extract_selected_items_for_checkout(state: ChatState) -> List[Dict[str, Any
     clean_query = query
     for keyword in checkout_keywords:
         clean_query = clean_query.replace(keyword, "")
-    
     clean_query = clean_query.strip()
     
     # 장바구니에 있는 상품 중에서 쿼리에 언급된 상품 찾기
     selected_items = []
     for item in cart_items:
-        product_name = item['name'].lower()
-        
+        product_name = (item['name'] or "").lower()
         # 완전 일치 또는 부분 일치 확인
         if product_name in clean_query or any(word in product_name for word in clean_query.split()):
             selected_items.append(item)
@@ -323,8 +347,7 @@ def _process_selective_checkout(state: ChatState, selected_items: List[Dict[str,
     return _process_full_checkout(temp_state, selected_items)
 
 def _process_full_checkout(state: ChatState, custom_items: List[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """전체 결제 처리 (기존 checkout 로직)"""
-
+    """전체 결제 처리"""
     # 1. 배송지 정보 조회
     address = _get_default_address(state)
     if "오류" in address or "없습니다" in address:
@@ -364,9 +387,15 @@ def _process_full_checkout(state: ChatState, custom_items: List[Dict[str, Any]] 
         # 선택적 결제인 경우 메시지 수정
         if custom_items:
             item_names = [item['name'] for item in custom_items]
-            message = f"선택하신 상품({', '.join(item_names)})이 주문 완료되었습니다!\n\n주문번호: {order_id}\n결제금액: {total_amount:,}원\n배송지: {address}\n배송시간: {_get_default_delivery_slot()}"
+            message = (
+                f"선택하신 상품({', '.join(item_names)})이 주문 완료되었습니다!\n\n"
+                f"주문번호: {order_id}\n결제금액: {total_amount:,}원\n배송지: {address}\n배송시간: {_get_default_delivery_slot()}"
+            )
         else:
-            message = f"주문이 완료되었습니다!\n\n주문번호: {order_id}\n결제금액: {total_amount:,}원\n배송지: {address}\n배송시간: {_get_default_delivery_slot()}"
+            message = (
+                f"주문이 완료되었습니다!\n\n주문번호: {order_id}\n결제금액: {total_amount:,}원\n"
+                f"배송지: {address}\n배송시간: {_get_default_delivery_slot()}"
+            )
         
         # 장바구니 업데이트 (선택적 결제인 경우 해당 상품만 제거)
         updated_cart = _update_cart_after_selective_checkout(state, custom_items) if custom_items else {"items": [], "total": 0}
@@ -397,15 +426,49 @@ def _process_selective_order(state: ChatState, selected_items: List[Dict[str, An
     try:
         conn.start_transaction()
         
-        # 1. order_tbl에 주문 추가
+        # 1. order_tbl에 주문 추가 (멤버십 스냅샷 포함)
         order_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        total_price = sum(float(item['unit_price']) * int(item['qty']) for item in selected_items)
+
+        # 장바구니 합계(상품금액 합계)
+        subtotal = sum(float(item['unit_price']) * int(item['qty']) for item in selected_items)
+
+        # 사용자 멤버십 조회 → 할인율/무료배송 기준 가져오기
+        cursor.execute("""
+            SELECT 
+                COALESCE(m.membership_name, 'basic')                AS tier_name,
+                COALESCE(m.discount_rate, 0)                        AS discount_rate,
+                COALESCE(m.free_shipping_threshold, 30000)          AS free_ship_threshold
+            FROM user_detail_tbl ud
+            LEFT JOIN membership_tbl m
+                ON m.membership_name = ud.membership
+            WHERE ud.user_id = %s
+            LIMIT 1
+        """, (user_id,))
+        row = cursor.fetchone()
+
+        if row:
+            membership_tier, discount_rate, free_ship_threshold = row
+        else:
+            membership_tier, discount_rate, free_ship_threshold = ('basic', 0.0, 30000)
+
+        # 금액 계산 (스냅샷)
+        discount_amount = int(subtotal * float(discount_rate))            # 원단위 버림
+        BASE_SHIPPING_FEE = 3000
+        shipping_fee = 0 if (subtotal - discount_amount) >= float(free_ship_threshold) else BASE_SHIPPING_FEE
+        total_price = int(subtotal - discount_amount + shipping_fee)      # 최종 결제 금액
+
+        # DB 저장: 스냅샷 컬럼 포함
         cursor.execute(
-            "INSERT INTO order_tbl (user_id, order_date, total_price, order_status) VALUES (%s, %s, %s, %s)",
-            (user_id, order_date, total_price, 'confirmed')
+            """
+            INSERT INTO order_tbl (
+                user_id, order_date,
+                total_price, order_status, subtotal, discount_amount, shipping_fee, membership_tier_at_checkout
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (user_id, order_date, total_price, 'confirmed', subtotal, discount_amount, shipping_fee, membership_tier)
         )
         order_code = cursor.lastrowid
-        
+
         # 2. order_detail_tbl에 주문 상세 추가
         for item in selected_items:
             cursor.execute(
@@ -457,7 +520,8 @@ def _get_default_address(state: ChatState) -> str:
     """DB의 userinfo_tbl에서 기본 배송지를 가져옵니다."""
     user_id = state.user_id or 'anonymous'
     conn = get_db_connection()
-    if not conn: return "주소 정보를 가져올 수 없습니다."
+    if not conn:
+        return "주소 정보를 가져올 수 없습니다."
     
     try:
         with conn.cursor() as cursor:
@@ -476,7 +540,10 @@ def _get_default_delivery_slot() -> str:
     return "내일 오전 (09:00-12:00)"
 
 def order_process(state: ChatState) -> Dict[str, Any]:
-    """주문 처리. DB에 주문을 기록하고 재고를 차감합니다 (Transaction 사용)"""
+    """
+    주문 처리. DB에 주문을 기록하고 재고를 차감합니다 (Transaction 사용)
+    - FIX: subtotal은 '상품금액 합계'만 사용 (배송비/할인 미포함)
+    """
     logger.info("주문 처리 프로세스 시작")
     user_id = state.user_id or 'anonymous'
     conn = get_db_connection()
@@ -487,12 +554,48 @@ def order_process(state: ChatState) -> Dict[str, Any]:
     try:
         conn.start_transaction()
         
-        # 1. order_tbl에 주문 추가
+        # 1. order_tbl에 주문 추가 (멤버십 스냅샷 포함)
         order_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        total_price = state.cart.get("total", 0)
+
+        # 장바구니 합계(상품금액 합계)만 사용
+        subtotal = state.cart.get("subtotal")
+        if subtotal is None:
+            subtotal = sum(float(i["unit_price"]) * int(i["qty"]) for i in state.cart.get("items", []))
+
+        # 사용자 멤버십 조회 → 할인율/무료배송 기준 가져오기
+        cursor.execute("""
+            SELECT 
+                COALESCE(m.membership_name, 'basic')                AS tier_name,
+                COALESCE(m.discount_rate, 0)                        AS discount_rate,
+                COALESCE(m.free_shipping_threshold, 30000)          AS free_ship_threshold
+            FROM user_detail_tbl ud
+            LEFT JOIN membership_tbl m
+                ON m.membership_name = ud.membership
+            WHERE ud.user_id = %s
+            LIMIT 1
+        """, (user_id,))
+        row = cursor.fetchone()
+
+        if row:
+            membership_tier, discount_rate, free_ship_threshold = row
+        else:
+            membership_tier, discount_rate, free_ship_threshold = ('basic', 0.0, 30000)
+
+        # 금액 계산 (스냅샷)
+        discount_amount = int(subtotal * float(discount_rate))           # 원단위 버림
+        BASE_SHIPPING_FEE = 3000
+        shipping_fee = 0 if (subtotal - discount_amount) >= float(free_ship_threshold) else BASE_SHIPPING_FEE
+        total_price = int(subtotal - discount_amount + shipping_fee)     # 최종 결제 금액
+
+        # DB 저장: 스냅샷 컬럼 포함
         cursor.execute(
-            "INSERT INTO order_tbl (user_id, order_date, total_price, order_status) VALUES (%s, %s, %s, %s)",
-            (user_id, order_date, total_price, 'confirmed')
+            """
+            INSERT INTO order_tbl (
+                user_id, order_date,
+                total_price, order_status, subtotal, discount_amount, shipping_fee, membership_tier_at_checkout
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (user_id, order_date, total_price, 'confirmed', subtotal, discount_amount, shipping_fee, membership_tier)
         )
         order_code = cursor.lastrowid
         
@@ -542,7 +645,7 @@ def remove_from_cart(state: ChatState) -> Dict[str, Any]:
     """DB의 cart_tbl에서 특정 상품을 제거하거나 수량을 1 감소시킵니다."""
     logger.info("장바구니 수정/제거 프로세스 시작")
     user_id = state.user_id or 'anonymous'
-    query = state.query.lower()
+    query = (state.query or "").lower()
     
     conn = get_db_connection()
     if not conn:
@@ -557,7 +660,7 @@ def remove_from_cart(state: ChatState) -> Dict[str, Any]:
             product_to_modify = None
             # 장바구니에 있는 상품 이름이 사용자 쿼리에 포함되어 있는지 확인합니다.
             for product in cart_products:
-                if product.lower() in query:
+                if (product or "").lower() in query:
                     product_to_modify = product
                     break
             
