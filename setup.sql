@@ -1,4 +1,3 @@
--- Active: 1753665154697@@127.0.0.1@3306@qook_chatbot
 -- Qook 신선식품 챗봇 데이터베이스 설정
 -- 데이터베이스 생성 및 사용자 설정
 
@@ -99,8 +98,12 @@ CREATE TABLE order_tbl (
     order_code INT AUTO_INCREMENT PRIMARY KEY,
     user_id VARCHAR(45) NOT NULL,
     order_date VARCHAR(45) NOT NULL,
-    total_price VARCHAR(45) NOT NULL,
+    total_price INT NOT NULL,
     order_status VARCHAR(20) DEFAULT 'pending',
+    SUBTOTAL INT, 
+    discount_amount INT, 
+    shipping_fee INT, 
+    membership_tier_at_checkout VARCHAR(20),
     FOREIGN KEY (user_id) REFERENCES userinfo_tbl(user_id) ON DELETE CASCADE
 );
 
@@ -207,11 +210,12 @@ CREATE TABLE IF NOT EXISTS membership_tbl (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+
 -- 기본 멤버십 데이터 삽입
 INSERT IGNORE INTO membership_tbl (membership_name, description, benefits, monthly_fee, discount_rate, free_shipping_threshold) VALUES
-('basic', '기본 회원', '{"features": ["기본 주문", "고객지원"]}', 0, 0.00, 30000),
-('gold', '회원', '{"features": ["무료배송", "우선 고객지원", "5% 할인"]}', 9900, 0.05, 0),
-('premium', '골드 회원', '{"features": ["무료배송", "VIP 고객지원", "10% 할인", "신상품 우선 구매"]}', 19900, 0.10, 0);
+('basic', '기본 회원', '{"features": ["고객지원", "무료배송(무료배송 기준: 30,000원 이상)"]}', 0, 0.00, 30000),
+('gold', '골드 회원', '{"features": ["5% 할인", "우선 고객지원", "무료배송(무료배송 기준: 15,000원 이상)"]}', 4900, 0.05, 15000),
+('premium', '프리미엄 회원', '{"features": ["10% 할인", "VIP 전담 매니저", "무료배송(금액 무관)", "신상품 우선 구매"]}', 9900, 0.10, 0);
 
 
 
@@ -311,3 +315,26 @@ ORDER BY TABLE_NAME, COLUMN_NAME;
 
 ALTER TABLE refund_tbl
   CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- =========================
+-- Tavily URL 기반 레시피 즐겨찾기
+-- =========================
+CREATE TABLE IF NOT EXISTS recipe_favorite_tbl (
+    user_id        VARCHAR(50)  NOT NULL,
+    recipe_url     VARCHAR(1000) NOT NULL,
+    url_hash       CHAR(64) AS (SHA2(recipe_url, 256)) STORED,
+    source         ENUM('tavily','external','internal') DEFAULT 'tavily',
+    recipe_title   VARCHAR(200),
+    image_url      VARCHAR(500),
+    site_name      VARCHAR(100),
+    snippet        VARCHAR(1000),
+    tags           JSON,
+    fetched_at     DATETIME,
+    favorited_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, url_hash),
+    CONSTRAINT fk_recipefav_user
+      FOREIGN KEY (user_id) REFERENCES userinfo_tbl(user_id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_recipefav_user_time ON recipe_favorite_tbl(user_id, favorited_at DESC);
+CREATE INDEX idx_recipefav_source    ON recipe_favorite_tbl(source);

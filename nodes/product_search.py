@@ -49,7 +49,7 @@ DB_CONFIG = {
 # --- DB 커넥션 풀 생성 ---
 try:
     db_connection_pool = MySQLConnectionPool(pool_name="qook_pool",
-                                             pool_size=5,
+                                            pool_size=5,
                                              **DB_CONFIG)
     logger.info("DB 커넥션 풀 생성 성공")
 except Error as e:
@@ -163,19 +163,35 @@ class ProductSearchEngine:
     def search_products(self, query: str, slots: Dict[str, Any]) -> Dict[str, Any]:
         logger.info(f"상품 검색 시작 - Query: {query}, Slots: {slots}")
         
+        # 1차 검색 수행
+        result = None
+        
         if openai_client:
             sql_query = self._generate_sql(query, slots)
+            logger.info(f"생성된 SQL: {sql_query}")
             if sql_query:
                 sql_result = self._execute_sql(sql_query)
                 if sql_result:
                     logger.info("Text2SQL 검색 성공")
-                    return {"success": True, "candidates": sql_result, "method": "text2sql", "sql_query": sql_query}
+                    result = {"success": True, "candidates": sql_result, "method": "text2sql", "sql_query": sql_query}
         
-        logger.info("Text2SQL 실패 또는 미사용, RAG 검색으로 전환")
-        rag_result = self._try_rag_search(query, slots)
-        if rag_result:
-            logger.info("RAG 검색 성공")
-            return {"success": True, "candidates": rag_result, "method": "rag"}
+        if not result:
+            logger.info("Text2SQL 실패 또는 미사용, RAG 검색으로 전환")
+            rag_result = self._try_rag_search(query, slots)
+            if rag_result:
+                logger.info("RAG 검색 성공")
+                result = {"success": True, "candidates": rag_result, "method": "rag"}
+        
+        # 2차 LLM 필터링 수행
+        if result and result["success"] and result.get("candidates"):
+            logger.info(f"LLM 필터링 전 후보 개수: {len(result['candidates'])}")
+            filtered_candidates = _filter_products_with_llm(result["candidates"], query, openai_client)
+            logger.info(f"LLM 필터링 후 후보 개수: {len(filtered_candidates)}")
+            
+            # 필터링된 결과로 업데이트
+            result["candidates"] = filtered_candidates
+            result["filtered"] = True
+            return result
         
         logger.warning("Text2SQL 및 RAG 검색 모두 실패")
         return {"success": False, "candidates": [], "method": "failed", "error": "검색 결과가 없습니다."}
@@ -184,6 +200,8 @@ class ProductSearchEngine:
         if not openai_client:
             logger.warning("OpenAI client 없음, SQL 생성 불가")
             return None
+        
+        logger.info(f"SQL 생성 시작 - Query: '{query}', Slots: {slots}")
         try:
             system_prompt = self._build_system_prompt()
             user_prompt = self._build_user_prompt(query, slots)
@@ -200,13 +218,8 @@ class ProductSearchEngine:
             
             sql_response = response.choices[0].message.content.strip()
             sql_query = self._extract_sql_from_response(sql_response)
-            
-            if sql_query and self._validate_sql(sql_query):
-                logger.info(f"SQL 생성 성공: {sql_query}")
-                return sql_query
-            else:
-                logger.warning(f"SQL 검증 실패 또는 빈 쿼리: {sql_response}")
-                return None
+            logger.info(f"LLM 응답에서 추출된 SQL: {sql_query}")
+            return sql_query
                 
         except Exception as e:
             logger.error(f"SQL 생성 중 오류 발생: {e}")
@@ -230,54 +243,60 @@ class ProductSearchEngine:
 예시 1:
 사용자 쿼리: "사과 찾아줘"
 사고 과정: '사과'라는 상품을 찾는 요청 -> product_tbl에서 상품명(product) 또는 품목(item)에 '사과'가 포함된 항목 검색 -> 가격, 원산지, 재고 정보 함께 조회
-SQL: SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product WHERE p.product LIKE '%사과%' OR p.item LIKE '%사과%';
+SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product WHERE p.product LIKE '%사과%' OR p.item LIKE '%사과%';
 
 예시 2:
 사용자 쿼리: "3000원 이하 과일 추천해줘"
 사고 과정: 가격 조건(3000원 이하) + 카테고리(과일=1) -> product_tbl과 category_tbl 조인 -> p.item과 c.item을 연결 -> 가격 조건 적용
-SQL: SELECT DISTINCT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product LEFT JOIN category_tbl c ON p.item = c.item WHERE CAST(p.unit_price AS UNSIGNED) <= 3000 AND c.category_id = 1;
+SELECT DISTINCT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product LEFT JOIN category_tbl c ON p.item = c.item WHERE CAST(p.unit_price AS UNSIGNED) <= 3000 AND c.category_id = 1;
 
 예시 3:
 사용자 쿼리: "유기농 채소 있어?"
 사고 과정: 유기농(organic='Y') + 채소(category_id=2) -> product_tbl의 organic 필드와 category_tbl 조인
-SQL: SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product LEFT JOIN category_tbl c ON p.item = c.item WHERE p.organic = 'Y' AND c.category_id = 2;
+SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product LEFT JOIN category_tbl c ON p.item = c.item WHERE p.organic = 'Y' AND c.category_id = 2;
 
 예시 4:
 사용자 쿼리: "재고 많은 상품 보여줘"
 사고 과정: 재고량 기준 정렬 -> stock_tbl의 stock 컬럼으로 내림차순 정렬
-SQL: SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product ORDER BY CAST(s.stock AS UNSIGNED) DESC LIMIT 10;
+SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product ORDER BY CAST(s.stock AS UNSIGNED) DESC LIMIT 10;
 
 ## 고급 및 개인화 검색 예시
 
 예시 5 (인기 상품):
 사용자 쿼리: "요즘 제일 잘 나가는 상품이 뭐야?"
 사고 과정: 인기 상품은 장바구니 추가 횟수(cart_add_count)가 높은 상품 -> product_tbl의 cart_add_count를 기준으로 내림차순 정렬
-SQL: SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product ORDER BY p.cart_add_count DESC LIMIT 5;
+SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product ORDER BY p.cart_add_count DESC LIMIT 5;
 
-예시 6 (다중 조건 결합):
+예시 6 (다중 조건 결합 - AND):
 사용자 쿼리: "만원 이하로 살 수 있는 국산 유기농 과일 보여줘"
 사고 과정: 여러 조건 결합 -> 가격(<=10000), 원산지('국내산'), 유기농('Y'), 카테고리(과일=1) -> 모든 조건을 AND로 연결
-SQL: SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product LEFT JOIN category_tbl c ON p.item = c.item WHERE CAST(p.unit_price AS UNSIGNED) <= 10000 AND p.origin = '국내산' AND p.organic = 'Y' AND c.category_id = 1;
+SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product LEFT JOIN category_tbl c ON p.item = c.item WHERE CAST(p.unit_price AS UNSIGNED) <= 10000 AND p.origin = '국내산' AND p.organic = 'Y' AND c.category_id = 1;
 
 예시 7 (개인화 - 알러지):
 사용자 쿼리: "user001입니다. 견과류 알러지가 있는데, 먹을만한 거 추천해주세요."
 사고 과정: 사용자 정보(user_id='user001')와 알러지 정보('견과류') 확인 -> user_detail_tbl JOIN -> 알러지 정보를 바탕으로 상품명과 품목에서 해당 키워드를 제외 (`NOT LIKE`)
-SQL: SELECT p.product, p.unit_price, p.origin FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product WHERE s.stock > 0 AND p.product NOT LIKE '%견과류%' AND p.item NOT LIKE '%아몬드%' AND p.item NOT LIKE '%호두%' AND p.item NOT LIKE '%땅콩%' ORDER BY p.cart_add_count DESC LIMIT 5;
+SELECT p.product, p.unit_price, p.origin FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product WHERE s.stock > 0 AND p.product NOT LIKE '%견과류%' AND p.item NOT LIKE '%아몬드%' AND p.item NOT LIKE '%호두%' AND p.item NOT LIKE '%땅콩%' ORDER BY p.cart_add_count DESC LIMIT 5;
 
 예시 8 (개인화 - 비건):
 사용자 쿼리: "비건을 위한 상품을 찾고 있어요."
 사고 과정: 비건 사용자는 육류/수산(4), 유제품(5) 카테고리를 피해야 함 -> 카테고리 ID를 `NOT IN`으로 제외
-SQL: SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product LEFT JOIN category_tbl c ON p.item = c.item WHERE c.category_id NOT IN (4, 5) ORDER BY p.cart_add_count DESC LIMIT 10;
+SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product LEFT JOIN category_tbl c ON p.item = c.item WHERE c.category_id NOT IN (4, 5) ORDER BY p.cart_add_count DESC LIMIT 10;
 
 예시 9 (유의어/확장 검색):
 사용자 쿼리: "해산물 좀 찾아줘"
 사고 과정: 사용자가 '해산물'을 찾고 있다. '해산물'은 '수산' 품목을 포함하는 개념이며, '육류/수산' 카테고리(ID=4)에 속한다. 따라서 category_id = 4인 상품들을 검색한다.
-SQL: SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product LEFT JOIN category_tbl c ON p.item = c.item WHERE c.category_id = 4 ORDER BY p.cart_add_count DESC LIMIT 10;
+SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product LEFT JOIN category_tbl c ON p.item = c.item WHERE c.category_id = 4 ORDER BY p.cart_add_count DESC LIMIT 10;
 
 예시 10 (의도 기반 검색):
 사용자 쿼리: "아침에 간단하게 먹을만한 거 있어?"
 사고 과정: 사용자가 '아침 식사'를 찾고 있다. 아침에는 보통 '빵'이나 '요거트', '우유' 등을 먹는다. 이는 '베이커리' 카테고리(ID=9)와 '유제품' 카테고리(ID=5)에 해당한다. 두 카테고리의 인기 상품을 추천한다.
-SQL: SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product LEFT JOIN category_tbl c ON p.item = c.item WHERE c.category_id IN (5, 9) ORDER BY p.cart_add_count DESC LIMIT 10;
+SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product LEFT JOIN category_tbl c ON p.item = c.item WHERE c.category_id IN (5, 9) ORDER BY p.cart_add_count DESC LIMIT 10;
+
+예시 11 (쿼리와 슬롯 OR 결합):
+사용자 쿼리: "조선간장"
+추출된 정보: - 카테고리: 조미료
+사고 과정: 사용자는 '조선간장'을 직접 검색하고 있지만, '조미료' 카테고리 정보도 함께 제공되었습니다. 이는 '조선간장'을 포함하여 다른 조미료 상품들도 함께 보고 싶다는 의도일 수 있습니다. 따라서 상품명/품목에 '조선간장'이 포함되거나, 또는 카테고리가 '조미료'(ID=7)인 경우를 모두 검색합니다.
+SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product LEFT JOIN category_tbl c ON p.item = c.item WHERE (p.product LIKE '%조선간장%' OR p.item LIKE '%조선간장%') OR c.category_id = 7;
 
 # 중요 규칙:
 1. 항상 `LEFT JOIN`을 사용하여 모든 관련 테이블을 연결하세요.
@@ -292,6 +311,7 @@ SQL: SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT J
 10. 여러 조건이 동시에 주어지면 `AND`로 모두 연결하세요.
 11. 사용자 정보는 `userinfo_tbl`, `user_detail_tbl`에 있으며, `user_id`로 JOIN 가능합니다.
 12. 사용자의 키워드가 명확한 상품이나 카테고리와 일치하지 않을 경우, **단어의 의미를 추론하여 가장 관련성 높은 카테고리를 검색**하세요. (예: '해산물' -> '수산' -> `category_id=4`, '아침식사' -> '베이커리', '유제품' -> `category_id IN (5, 9)`)
+13. 사용자 쿼리 키워드와 함께 `category`, `organic` 같은 `slots` 정보가 주어지면, **쿼리 키워드와 `slots` 조건을 `OR`로 연결하여 검색을 확장**하세요. 이는 사용자가 특정 상품을 찾다가 관련 카테고리의 다른 상품들도 함께 보고 싶어하는 의도를 반영하기 위함입니다.
 """
     
 
@@ -307,26 +327,50 @@ SQL: SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT J
         return "\n".join(prompt_parts)
     
     def _extract_sql_from_response(self, response: str) -> Optional[str]:
-        match = re.search(r'SQL:\s*(.+?)(?:\n|$|;)', response, re.IGNORECASE | re.DOTALL)
-        if match: return match.group(1).strip()
-        match = re.search(r'```sql\s*(.+?)\s*```', response, re.IGNORECASE | re.DOTALL)
-        if match: return match.group(1).strip().rstrip(';')
-        match = re.search(r'(SELECT\s+.+)', response, re.IGNORECASE | re.DOTALL)
-        if match: return match.group(1).strip().rstrip(';')
+        """
+        LLM 응답에서 SQL 쿼리를 추출합니다.
+        코드 블록이 없는 경우 SQL: 라벨 다음의 SELECT 문을 추출합니다.
+        """
+        match = re.search(r'```sql\s*\n?(.*?)\n?\s*```', response, re.IGNORECASE | re.DOTALL)
+        if match: 
+            sql = match.group(1).strip().rstrip(';')
+            return ' '.join(sql.split())
+
+        match = re.search(r'```\s*\n?(.*?)\n?\s*```', response, re.IGNORECASE | re.DOTALL)
+        if match: 
+            sql = match.group(1).strip().rstrip(';')
+            if sql.upper().strip().startswith('SELECT'):
+                return ' '.join(sql.split())
+
+        match = re.search(r'SQL:\s*(SELECT.*?)(?=\n[A-Z가-힣]|\Z)', response, re.IGNORECASE | re.DOTALL)
+        if match: 
+            sql = match.group(1).strip().rstrip(';')
+            if sql.upper().startswith('SQL:'):
+                sql = re.sub(r'^SQL:\s*', '', sql, flags=re.IGNORECASE)
+            return ' '.join(sql.split())
+
+        match = re.search(r'(SELECT\s+.*?)(?=\n[A-Z가-힣]|\Z)', response, re.IGNORECASE | re.DOTALL)
+        if match: 
+            sql = match.group(1).strip().rstrip(';')
+            return ' '.join(sql.split())
+
         return None
     
-    def _validate_sql(self, sql: str) -> bool:
-        if not sql or not sql.strip(): return False
-        sql_upper = sql.upper()
-        if not sql_upper.strip().startswith('SELECT'): return False
-        dangerous_keywords = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER', 'CREATE']
-        if any(keyword in sql_upper for keyword in dangerous_keywords):
-            logger.warning(f"위험한 SQL 키워드 감지")
-            return False
-        if 'PRODUCT_TBL' not in sql_upper:
-            logger.warning("product_tbl이 SQL에 포함되지 않음")
-            return False
-        return True
+    # def _validate_sql(self, sql: str) -> bool:
+    #     sanitized_sql = re.sub(r'\s+', ' ', sql).strip()
+        
+    #     # 정규화된 SQL을 대문자로 변경하여 검증을 수행합니다.
+    #     sql_upper = sanitized_sql.upper()
+    #     if not sql_upper.startswith('SELECT'): return False
+    #     dangerous_keywords = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER', 'CREATE']
+    #     if any(keyword in sql_upper for keyword in dangerous_keywords):
+    #         logger.warning(f"위험한 SQL 키워드 감지")
+    #         return False
+    #     # 이제 이 검증이 정상적으로 동작합니다.
+    #     if 'product_tbl' not in sql_upper:
+    #         logger.warning("product_tbl이 SQL에 포함되지 않음")
+    #         return False
+    #     return True
 
     def _execute_sql(self, sql: str) -> List[Dict[str, Any]]:
         conn = get_db_connection()
@@ -485,31 +529,19 @@ def product_search_rag_text2sql(state: ChatState) -> Dict[str, Any]:
         query = state.rewrite.get('text') or state.query
         slots = state.slots or {}
         
-        # 1. Text2SQL 또는 RAG를 통해 1차 검색 수행
+        # Text2SQL 또는 RAG를 통해 검색 수행 (LLM 필터링 포함)
         result = search_engine.search_products(query, slots)
         
         if result["success"] and result.get("candidates"):
-            
-            # 2. <<-- 새로 추가된 부분 -->>
-            # 1차 검색 결과를 LLM을 통해 연관성 필터링 수행
-            initial_candidates = result["candidates"]
-            
-            # 전역 openai_client를 가져와서 사용
-            global openai_client 
-            
-            filtered_candidates = _filter_products_with_llm(initial_candidates, query, openai_client)
-            
-            # 필터링된 결과로 업데이트
-            result["candidates"] = filtered_candidates
-            # <<---------------------->>
-            
             search_result = {
                 "candidates": result.get("candidates", []),
                 "method": result.get("method"),
-                # 필터링된 결과의 개수로 total_results 업데이트
-                "total_results": len(result.get("candidates", [])) 
+                "total_results": len(result.get("candidates", []))
             }
-            if result.get("sql_query"): search_result["sql"] = result["sql_query"]
+            if result.get("sql_query"): 
+                search_result["sql"] = result["sql_query"]
+            if result.get("filtered"):
+                search_result["filtered"] = True
             return {"search": search_result}
         else:
             return {"search": {"candidates": [], "method": "failed", "error": result.get("error"), "total_results": 0}}
@@ -539,42 +571,204 @@ def _filter_products_with_llm(
 
     logger.info(f"LLM 정밀 필터링 시작. Query: '{query}', Candidates: {[p['name'] for p in products]}")
 
-    # LLM에게 전달할 시스템 프롬프트 정의 (상품 중심 필터링으로 개선)
     system_prompt = """
-당신은 사용자의 쇼핑 쿼리 의도를 정확히 파악하여, 관련 없는 검색 결과를 제거하는 상품 필터링 전문가입니다.
-당신의 임무는 주어진 쿼리와 상품 목록을 분석하여, 사용자의 의도에 부합하는 상품만 필터링하는 것입니다.
+당신은 사용자의 쇼핑 쿼리를 다차원적으로 분석하여, 주어진 상품 목록에서 사용자의 실제 의도와 일치하는 상품만을 정확하게 필터링하는 AI 상품 필터링 전문가입니다.
+당신의 임무는 단순한 키워드 매칭을 넘어, 쿼리에 담긴 문맥, 속성, 카테고리까지 파악하여 가장 적합한 상품 목록을 제공하는 것입니다.
+필터링 사고 프로세스 (Chain of Thought)
+1단계: 쿼리 의도 구조화 (Intent Structuring)
+사용자의 쿼리를 분석하여 핵심 구성요소로 분해합니다.
+A. 핵심 개체 (Core Entity): 사용자가 구매하려는 상품의 본질.
 
-**필터링 규칙:**
+쿼리: "신선한 유기농 사과" -> 핵심 개체: 사과
+쿼리: "캠핑용 닭다리 구이" -> 핵심 개체: 닭다리
+쿼리: "과일 좀 골라줘" -> 핵심 개체: 과일 (카테고리)
 
-1.  **쿼리 유형 분석:** 먼저 사용자의 쿼리가 '특정 상품'을 찾는지, '광범위한 카테고리'를 찾는지 분석합니다.
-    * `특정 상품 쿼리`: "닭다리", "신라면", "유기농 우유"
-    * `광범위한 카테고리 쿼리`: "해산물", "과일", "고기"
+B. 속성 및 제약 조건 (Attributes & Constraints): 핵심 개체를 수식하거나 제한하는 모든 조건.
 
-2.  **'특정 상품 쿼리' 처리:**
-    * **1순위 (정확한 일치):** 상품 목록에 쿼리와 정확히 일치하는 상품이 있으면 **반드시 포함**합니다.
-    * **2순위 (유사/대체 상품):** 정확히 일치하는 상품이 없을 경우, 주재료가 동일한 **가장 유사한 상품을 포함**합니다.
-        * 쿼리 "닭다리" -> 목록에 "닭가슴살"이 있다면, 이는 주재료('닭')가 동일한 유사 상품이므로 **포함**합니다.
-        * 쿼리 "사과" -> 목록에 "사과 주스"가 있다면, 이는 가공품이므로 사용자의 의도(원물 과일)와 다를 가능성이 높아 **제외**합니다.
+긍정 속성 (Positive Attributes): 신선한, 유기농, 캠핑용, 구이
+부정 제약 조건 (Negative Constraints): 돼지고기는 빼고 -> 제외 대상: 돼지고기
+용도/상황 (Usage/Context): 아침 식사용, 샐러드에 넣을
 
-3.  **'광범위한 카테고리 쿼리' 처리:**
-    * 쿼리가 "해산물"이라면, 상품 목록에 있는 '고등어', '오징어', '새우' 등 **해산물 카테고리에 속하는 모든 상품을 포함**합니다.
-    * 쿼리가 "고기"라면, '소고기', '돼지고기', '닭고기' 등을 모두 포함합니다.
+C. 검색 유형 판단 (Search Type Identification):
 
-4.  **제외 조건:** "돼지고기 빼고"와 같은 명시적인 제외 조건은 반드시 준수합니다.
+개별 상품 검색 (Item Search): 특정 상품을 명시한 경우. (예: "해물라면")
+카테고리 검색 (Category Search): 포괄적인 범주를 명시한 경우. (예: "수산물", "채소")
 
-5.  **최종 출력:** 위 규칙에 따라 필터링된 상품들의 `name`만을 리스트에 담아 아래 JSON 형식으로 반환합니다. 다른 설명은 절대 추가하지 마세요.
-"""
+2단계: 키워드 분석 및 확장 (Keyword Analysis & Expansion)
+구조화된 의도를 기반으로 검색에 사용할 키워드를 정교화합니다.
+A. 수식어 처리: 형용사, 관형어 등은 핵심 개체와 결합된 중요한 필터링 조건으로 간주합니다.
 
-    user_prompt = f"""
-# 사용자 쿼리
-"{query}"
+쿼리: "신선한 수박" -> 신선한과 수박 두 조건을 모두 만족하는 상품을 우선적으로 고려합니다.
+쿼리: "유기농 사과" -> 유기농 인증 또는 설명이 있고, 사과인 상품을 찾습니다.
 
-# 1차 검색된 상품 목록
-{json.dumps(candidate_info, ensure_ascii=False, indent=2)}
+B. 의미론적 카테고리 분류 (Semantic Category Classification): 
+'카테고리 검색'으로 판단된 경우, 사용자의 쿼리 키워드가 가진 실제 의미 범위를 정확히 파악하여 필터링합니다.
 
-# 지시
-위 필터링 규칙에 따라 쿼리의 의도에 부합하는 상품들의 `name`을 리스트로 추출하여 아래 JSON 형식으로만 응답해주세요.
-"""
+원칙 1: 생물학적/물리적 특성 기반 분류
+- 서식지 기반: "해산물/수산물" = 바다/강/호수에서 서식하는 생물 (물고기, 조개, 새우, 게, 문어, 오징어 등)
+- 생물 분류: "육류" = 육지 포유류 (소, 돼지, 양 등), "가금류" = 조류 (닭, 오리 등)
+- 식물 분류: "과일" = 과실류, "채소" = 잎/줄기/뿌리 채소류
+
+원칙 2: 상위-하위 개념 관계 인식
+- 상위 카테고리 내 세분화: "육류/수산" 카테고리 내에서 "해산물"은 수산 부분만 해당
+- 교집합 처리: 사용자 의도가 전체 카테고리가 아닌 일부분일 경우 의미적으로 일치하는 것만 선택
+- 계층적 분류: 사용자가 상위 개념을 말했을 때는 하위 개념들을 모두 포함
+
+원칙 3: 일반 상식 기반 판단
+- 요리/식재료 맥락에서의 일반적 분류 적용
+- 사용자가 일반적으로 기대하는 범주와 일치하는지 검증
+- 문화적/관습적 분류 기준 적용 (예: 토마토는 식물학적으론 과일이지만 요리에서는 채소로 취급)
+
+예시 적용:
+쿼리: "해산물" -> 바다/강에서 나는 수산물만 선택 (참치, 새우, 문어 등 ○, 소고기, 닭고기 등 ×)
+쿼리: "육류" -> 육지 동물의 고기만 선택 (소고기, 돼지고기, 닭고기 등 ○, 생선류 ×)
+쿼리: "과일" -> 과실류만 선택 (사과, 바나나 등 ○, 과일주스나 과자류 ×)
+
+3단계: 개별 상품 적합성 평가 (Product Relevance Assessment)
+위 분석 결과를 바탕으로, 제공된 각 상품이 사용자의 의도에 부합하는지 종합적으로 평가합니다.
+
+핵심 개체 일치 여부: 상품명이 쿼리의 핵심 개체와 일치하거나 직접적으로 관련 있는가?
+속성 및 제약 조건 충족 여부: 상품이 쿼리의 긍정 속성(유기농, 신선한 등)을 만족하며, 부정 제약 조건(돼지고기 제외 등)에 해당하지 않는가?
+문맥 및 상식 기반 판단: 상품이 쿼리의 용도/상황에 적합한가?
+
+쿼리: "샐러드에 넣을 과일"
+상품 "아보카도": (평가) 샐러드에 흔히 사용되는 과일. (적합)
+상품 "수박(통)": (평가) 샐러드 재료로는 부적합. (부적합)
+상품 "사과 주스": (평가) '사과'는 관련 있으나 '주스' 형태는 샐러드 재료가 아님. (부적합)
+
+카테고리 일치 여부 (카테고리 검색 시): 상품이 해당 카테고리에 속하는가?
+
+쿼리: "채소"
+상품 "유기농 양파": (평가) 양파는 채소 카테고리에 속함. (적합)
+상품 "다진 마늘": (평가) 마늘은 채소 카테고리에 속함. (적합)
+
+4단계: 최종 목록 생성 (Final List Generation)
+위의 모든 평가를 통과한 상품들의 이름(name)만을 모아 지정된 JSON 형식으로 최종 결과를 생성합니다.
+최종 출력 규칙
+
+최종적으로 사용자의 쿼리와 직접적으로 관련된 상품들의 이름(name)만을 리스트에 담아 아래 JSON 형식으로 반환합니다.
+relevant_products 리스트 외에 다른 설명, 주석, 예시는 절대 포함하지 마세요. 최종 출력물은 반드시 순수한 JSON 객체여야 합니다.
+
+출력 형식:
+{
+"relevant_products": [
+"상품명1",
+"상품명2",
+"상품명3"
+]
+}
+예시 (Examples)
+예시 1: 개별 상품 검색 (수식어 포함)
+사용자 쿼리: "신선한 사과"
+상품 목록:
+
+유기농 사과 (500g)
+신선한 딸기 (250g)
+사과 주스 (1L)
+냉동 사과 파이
+갓 딴 청사과 (1kg)
+
+출력:
+{
+"relevant_products": [
+"유기농 사과 (500g)",
+"갓 딴 청사과 (1kg)"
+]
+}
+예시 2: 합성어 분해 (결합형)
+사용자 쿼리: "해물라면"
+상품 목록:
+
+신라면
+해물탕 라면
+오징어 젓갈
+새우깡
+해물 파스타 소스
+라면사리
+
+출력:
+{
+"relevant_products": [
+"해물탕 라면"
+]
+}
+예시 3: 카테고리 검색
+사용자 쿼리: "채소 좀 골라줘"
+상품 목록:
+
+유기농 양파 (1kg)
+닭가슴살 (300g)
+신선한 당근 (500g)
+사과 (3개입)
+다진 마늘 (100g)
+우유 (1L)
+
+출력:
+{
+"relevant_products": [
+"유기농 양파 (1kg)",
+"신선한 당근 (500g)",
+"다진 마늘 (100g)"
+]
+}
+예시 4: 부정 제약 조건
+사용자 쿼리: "육류인데 돼지고기는 빼고"
+상품 목록:
+
+한우 등심 (200g)
+돼지 삼겹살 (300g)
+닭가슴살 (500g)
+양념 갈비 (400g)
+돼지고기 목살 (350g)
+오리고기 훈제 (250g)
+
+출력:
+{
+"relevant_products": [
+"한우 등심 (200g)",
+"닭가슴살 (500g)",
+"양념 갈비 (400g)",
+"오리고기 훈제 (250g)"
+]
+}
+예시 5: 용도/상황 기반 필터링
+사용자 쿼리: "샐러드에 넣을 과일"
+상품 목록:
+
+아보카도 (2개입)
+수박 (통) 5kg
+체리 토마토 (300g)
+사과 주스 (1L)
+블루베리 (125g)
+바나나 (5개입)
+
+출력:
+{
+"relevant_products": [
+"아보카도 (2개입)",
+"체리 토마토 (300g)",
+"블루베리 (125g)"
+]
+}
+예시 6: 수식형 합성어
+사용자 쿼리: "한국우유"
+상품 목록:
+
+서울우유 저지방 (1L)
+덴마크 치즈 (200g)
+국산 우유 (900ml)
+외국산 버터 (250g)
+매일유업 우유 (1L)
+이탈리아 요거트 (150g)
+
+출력:
+{
+"relevant_products": [
+"서울우유 저지방 (1L)",
+"국산 우유 (900ml)",
+"매일유업 우유 (1L)"
+]
+}"""
 
     # LLM에게 전달할 사용자 프롬프트 생성 (상품 목록 전체 전달)
     user_prompt = f"""

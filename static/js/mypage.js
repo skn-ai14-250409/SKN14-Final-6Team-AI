@@ -61,6 +61,11 @@ function showContent(contentType) {
         }, 50);
     }
     
+    // 개인정보 수정 화면일 경우 데이터 로드
+    if (contentType === 'profile') {
+        loadUserProfile();
+    }
+    
     // 메뉴 활성화 상태 업데이트
     setActiveMenu(contentType);
     currentActiveMenu = contentType;
@@ -90,6 +95,139 @@ function editProfile() {
     
     // 미래에 모달이나 다른 페이지로 이동하는 기능을 여기에 추가
     // 예: window.location.href = '/profile/edit';
+}
+
+// 개인정보 수정 관련 함수들
+function loadUserProfile() {
+    console.log('사용자 개인정보 로드');
+    
+    // API 호출로 사용자 정보 가져오기
+    fetch('/api/profile/get')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                populateProfileForm(data.user);
+            } else {
+                showNotification('사용자 정보를 불러올 수 없습니다.', 'error');
+            }
+        })
+        .catch(error => {
+            console.error('사용자 정보 로드 실패:', error);
+            showNotification('사용자 정보 로드 중 오류가 발생했습니다.', 'error');
+        });
+}
+
+function populateProfileForm(userData) {
+    console.log('프로필 폼에 데이터 채우기', userData);
+    
+    // 기본 정보
+    const fields = {
+        'profileUserId': userData.user_id,
+        'profileName': userData.name,
+        'profileEmail': userData.email,
+        'profilePhone': userData.phone_num,
+        'profileBirthDate': userData.birth_date,
+        'profileAge': userData.age,
+        'profileAddress': userData.address,
+        'profilePostNum': userData.post_num,
+        'profileHouseHold': userData.house_hold,
+        'profileAllergy': userData.allergy,
+        'profileUnfavorite': userData.unfavorite
+    };
+    
+    // 폼 필드 채우기
+    Object.keys(fields).forEach(fieldId => {
+        const element = document.getElementById(fieldId);
+        if (element && fields[fieldId] !== null && fields[fieldId] !== undefined) {
+            element.value = fields[fieldId];
+        }
+    });
+    
+    // 멤버십 정보 (읽기 전용으로 표시)
+    const membershipElement = document.getElementById('profileMembership');
+    if (membershipElement && userData.membership) {
+        const membershipDisplayNames = {
+            'basic': 'Basic - 기본 회원',
+            'premium': 'Premium - 프리미엄 회원 (월 9,900원)',
+            'gold': 'Gold - 골드 회원 (월 19,900원)'
+        };
+        membershipElement.value = membershipDisplayNames[userData.membership] || userData.membership;
+    }
+    
+    // 성별 라디오 버튼
+    if (userData.gender) {
+        const genderRadio = document.querySelector(`input[name="gender"][value="${userData.gender}"]`);
+        if (genderRadio) {
+            genderRadio.checked = true;
+        }
+    }
+    
+    // 비건 체크박스
+    const veganCheckbox = document.getElementById('profileVegan');
+    if (veganCheckbox) {
+        veganCheckbox.checked = userData.vegan === 1;
+    }
+}
+
+function saveProfile() {
+    console.log('개인정보 저장 시작');
+    
+    // 폼 데이터 수집 (멤버십 제외)
+    const formData = {
+        name: document.getElementById('profileName').value,
+        email: document.getElementById('profileEmail').value,
+        phone_num: document.getElementById('profilePhone').value,
+        birth_date: document.getElementById('profileBirthDate').value,
+        address: document.getElementById('profileAddress').value,
+        post_num: document.getElementById('profilePostNum').value,
+        age: document.getElementById('profileAge').value,
+        gender: document.querySelector('input[name="gender"]:checked')?.value,
+        house_hold: document.getElementById('profileHouseHold').value,
+        vegan: document.getElementById('profileVegan').checked ? 1 : 0,
+        allergy: document.getElementById('profileAllergy').value,
+        unfavorite: document.getElementById('profileUnfavorite').value
+    };
+    
+    // 필수 필드 검증
+    if (!formData.name || !formData.email) {
+        showNotification('이름과 이메일은 필수 입력 항목입니다.', 'error');
+        return;
+    }
+    
+    // 이메일 형식 검증
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(formData.email)) {
+        showNotification('올바른 이메일 형식을 입력해주세요.', 'error');
+        return;
+    }
+    
+    // API 호출로 정보 저장
+    fetch('/api/profile/update', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(formData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showNotification('개인정보가 성공적으로 저장되었습니다.', 'info');
+            // 기존 메뉴로 돌아가기
+            showContent('orders');
+        } else {
+            showNotification(data.message || '저장 중 오류가 발생했습니다.', 'error');
+        }
+    })
+    .catch(error => {
+        console.error('개인정보 저장 실패:', error);
+        showNotification('저장 중 오류가 발생했습니다.', 'error');
+    });
+}
+
+function cancelProfileEdit() {
+    console.log('개인정보 수정 취소');
+    showContent('orders');
 }
 
 // 사용자 정보 로드
