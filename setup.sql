@@ -1,3 +1,4 @@
+-- Active: 1753666109889@@127.0.0.1@3306@qook_chatbot
 -- Qook 신선식품 챗봇 데이터베이스 설정
 -- 데이터베이스 생성 및 사용자 설정
 
@@ -100,10 +101,10 @@ CREATE TABLE order_tbl (
     order_date VARCHAR(45) NOT NULL,
     total_price INT NOT NULL,
     order_status VARCHAR(20) DEFAULT 'pending',
-    SUBTOTAL INT, 
-    discount_amount INT, 
-    shipping_fee INT, 
-    membership_tier_at_checkout VARCHAR(20),
+    subtotal INT NOT NULL, 
+    discount_amount INT NOT NULL, 
+    shipping_fee INT NOT NULL, 
+    membership_tier_at_checkout VARCHAR(45) NOT NULL,
     FOREIGN KEY (user_id) REFERENCES userinfo_tbl(user_id) ON DELETE CASCADE
 );
 

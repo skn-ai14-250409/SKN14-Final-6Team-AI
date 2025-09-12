@@ -83,7 +83,8 @@ def get_order_details(order_code: str, user_id: Optional[str] = None) -> Dict[st
             if user_id:
                 cursor.execute(
                     """
-                    SELECT order_code, user_id, order_date, total_price, order_status
+                    SELECT order_code, user_id, order_date, total_price, order_status, 
+                           subtotal, discount_amount, shipping_fee
                     FROM order_tbl
                     WHERE order_code = %s AND user_id = %s
                     """,
@@ -92,7 +93,8 @@ def get_order_details(order_code: str, user_id: Optional[str] = None) -> Dict[st
             else:
                 cursor.execute(
                     """
-                    SELECT order_code, user_id, order_date, total_price, order_status
+                    SELECT order_code, user_id, order_date, total_price, order_status, 
+                           subtotal, discount_amount, shipping_fee
                     FROM order_tbl
                     WHERE order_code = %s
                     """,
@@ -109,19 +111,25 @@ def get_order_details(order_code: str, user_id: Optional[str] = None) -> Dict[st
                 "quantity": _to_int(r.get("quantity")),
                 "price": _to_float(r.get("price")),
             })
-        subtotal = sum(_to_float(it["price"]) * _to_int(it["quantity"]) for it in items)
-        discount = 0.0
-        total = _to_float(order_row.get("total_price")) or subtotal
+
+        # ✅ 수정: DB에서 직접 가져온 값 사용
+        db_subtotal = _to_float(order_row.get("subtotal"))
+        db_discount_amount = _to_float(order_row.get("discount_amount"))
+        db_shipping_fee = _to_float(order_row.get("shipping_fee"))
+        db_total_price = _to_float(order_row.get("total_price"))
+        
         return {
             "order_code": str(order_row["order_code"]),
             "order_date": (order_row["order_date"].strftime("%Y-%m-%d %H:%M:%S")
                            if isinstance(order_row["order_date"], datetime)
                            else str(order_row["order_date"])),
             "order_status": order_row.get("order_status") or "",
-            "total_price": total,
-            "subtotal": subtotal,
-            "discount": discount,
-            "total": total,
+            "total_price": db_total_price,
+            "subtotal": db_subtotal,
+            "discount_amount": db_discount_amount,
+            "shipping_fee": db_shipping_fee,
+            "discount": db_discount_amount,  # 호환성을 위해 유지
+            "total": db_total_price,  # 호환성을 위해 유지
             "items": items,
         }
     except Error as e:

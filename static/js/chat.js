@@ -745,15 +745,51 @@ class ChatBot {
     return false;
   }
 
+  // recalculateAndRedrawCart() {
+  //   if (!this.cartState) return;
+  //   this.cartState.subtotal = this.cartState.items.reduce((acc, it) => acc + (parseFloat(it.unit_price) * it.qty), 0);
+  //   let discountAmount = 0;
+  //   if (this.cartState.subtotal >= 30000) {
+  //     discountAmount = 3000;
+  //     this.cartState.discounts = [{ type:'free_shipping', amount:3000, description:'무료배송' }];
+  //   } else { this.cartState.discounts = []; }
+  //   this.cartState.total = this.cartState.subtotal - discountAmount;
+  //   this.updateCart(this.cartState, false);
+  // }
+
   recalculateAndRedrawCart() {
     if (!this.cartState) return;
-    this.cartState.subtotal = this.cartState.items.reduce((acc, it) => acc + (parseFloat(it.unit_price) * it.qty), 0);
-    let discountAmount = 0;
-    if (this.cartState.subtotal >= 30000) {
-      discountAmount = 3000;
-      this.cartState.discounts = [{ type:'free_shipping', amount:3000, description:'무료배송' }];
-    } else { this.cartState.discounts = []; }
-    this.cartState.total = this.cartState.subtotal - discountAmount;
+
+    // 1) 상품 합계
+    const subtotal = this.cartState.items.reduce(
+      (acc, it) => acc + (parseFloat(it.unit_price) * it.qty), 0
+    );
+
+    // 2) 멤버십 정보(없으면 기본값)
+    const m = (this.cartState.membership || {});
+    const rate = Number(m.discount_rate ?? 0);                // 예: 0.05
+    const freeThr = Number(m.free_shipping_threshold ?? 30000);
+
+    // 3) 할인/배송비 계산 (✅ 할인 후 금액으로 무료배송 판단)
+    const membershipDiscount = Math.floor(subtotal * rate);
+    const effectiveSubtotal  = subtotal - membershipDiscount;
+    const shippingFee        = (effectiveSubtotal >= freeThr) ? 0 : 3000;
+
+    // 4) 상태 반영
+    this.cartState.subtotal  = subtotal;
+    this.cartState.shipping_fee = shippingFee;
+    this.cartState.discounts = [];
+    if (membershipDiscount > 0) {
+      this.cartState.discounts.push({
+        type: 'membership_discount',
+        amount: membershipDiscount,
+        description: `멤버십 ${Math.round(rate*100)}% 할인`
+      });
+    }
+    // 총금액 = (할인 후 상품금액) + 배송비
+    this.cartState.total = Math.max(0, effectiveSubtotal + shippingFee);
+
+    // UI 갱신
     this.updateCart(this.cartState, false);
   }
 
@@ -1483,24 +1519,60 @@ renderEvidenceResultBubble(data, ctx){
       this.hideCustomLoading();
     }
   }
+  // 주문 상세 조회 호출
+  async fetchAndShowOrderDetails(orderCode) {
+    this.showCustomLoading('cs', '주문 내역을 불러오는 중입니다...', 'dots');
+    try {
+      const res = await fetch('/api/orders/details', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(getCSRFToken() ? { 'X-CSRFToken': getCSRFToken() } : {})
+        },
+        body: JSON.stringify({
+          order_code: String(orderCode),
+          user_id: this.userId
+        }),
+        credentials: 'include'
+      });
 
-  // 주문 상세 말풍선: 배송문의면 "사진 업로드" 버튼 제거
+      const data = await res.json();
+
+      if (!res.ok || !data || !Array.isArray(data.items) || data.items.length === 0) {
+        this.addMessage('해당 주문의 상세 내역을 찾지 못했어요.', 'bot', true);
+        return;
+      }
+
+      // 배송문의 상태를 data 객체에 추가하여 전달
+      data.isDeliveryInquiry = this.isCurrentlyDeliveryInquiry;
+      this.renderOrderDetailsBubble(data);
+    } catch (err) {
+      console.error('order details error:', err);
+      this.addMessage('주문 내역을 불러오던 중 오류가 발생했어요.', 'bot', true);
+    } finally {
+      this.hideCustomLoading();
+    }
+  }
+
+  // 🔁 기존 chat.js의 동일 함수 자리에 그대로 교체
   renderOrderDetailsBubble(data) {
-    const code = this.escapeHtml(String(data.order_code || ''));
-    const date = this.escapeHtml(data.order_date || '');
-    const status = this.escapeHtml(data.order_status || '');
-    
-    // 배송문의 여부 판단 (서버 데이터 또는 클래스 속성에서 확인)
-    const isDelivery = data.isDeliveryInquiry || data.allow_evidence === false || data.category === '배송' || data.list_type === 'delivery';
 
+    const code   = this.escapeHtml(String(data.order_code || ''));
+    const date   = this.escapeHtml(data.order_date || '');
+    const status = this.escapeHtml(data.order_status || '');
+
+    // 배송문의 여부
+    const isDelivery = data.isDeliveryInquiry || data.allow_evidence === false
+                    || data.category === '배송' || data.list_type === 'delivery';
+
+    // 라인아이템 렌더
     const rows = (data.items || []).map((it, idx) => {
       const rawName = it.product || it.name || '';
-      const name = this.escapeHtml(rawName);
-      const qty = Number(it.quantity || it.qty || 0);
-      const price = Number(it.price || it.unit_price || 0);
-      const line = price * qty;
-      
-      // 배송문의가 아닌 경우에만 증빙 컬럼과 버튼 추가
+      const name  = this.escapeHtml(rawName);
+      const qty   = Number(it.quantity ?? it.qty ?? 0);
+      const price = Number(it.price ?? it.unit_price ?? 0);
+      const line  = price * qty;
+
       const evidenceCell = isDelivery ? '' : `
         <td class="py-1 text-center">
           <button class="evidence-upload-btn px-2 py-1 text-xs border rounded hover:bg-blue-50"
@@ -1508,57 +1580,60 @@ renderEvidenceResultBubble(data, ctx){
             <i class="fas fa-camera mr-1"></i>사진 업로드
           </button>
         </td>`;
-      
+
       return `
-      <tr class="border-b order-item-row" data-product="${name}" data-qty="${qty}">
-        <td class="py-1 pr-3 text-gray-800">${idx + 1}.</td>
-        <td class="py-1 pr-3 text-gray-800">${name}</td>
-        <td class="py-1 pr-3 text-right">${this.formatPrice(price)}원</td>
-        <td class="py-1 pr-3 text-right">${qty}</td>
-        <td class="py-1 text-right font-medium">${this.formatPrice(line)}원</td>
-        ${evidenceCell}
-      </tr>
-    `;
+        <tr class="border-b order-item-row" data-product="${name}" data-qty="${qty}">
+          <td class="py-1 pr-3 text-gray-800">${idx + 1}.</td>
+          <td class="py-1 pr-3 text-gray-800">${name}</td>
+          <td class="py-1 pr-3 text-right">${this.formatPrice(price)}원</td>
+          <td class="py-1 pr-3 text-right">${qty}</td>
+          <td class="py-1 text-right font-medium">${this.formatPrice(line)}원</td>
+          ${evidenceCell}
+        </tr>`;
     }).join('');
 
-    const subtotal = Number(data.subtotal || data.total_price || 0);
-    const total    = Number(data.total || subtotal);
-    const discount = Math.max(0, Number(data.discount || 0));
-    
-    // 테이블 헤더에서도 배송문의면 증빙 컬럼 제거
+    // ✅ 수정: DB에서 직접 가져온 값만 사용 (계산하지 않음)
+    const subtotal = Number(data.subtotal ?? data.order?.subtotal ?? 0);
+    const discount = Number(data.discount_amount ?? data.order?.discount_amount ?? 0);
+    const shipping = Number(data.shipping_fee ?? data.order?.shipping_fee ?? 0);
+    const total = Number(data.total_price ?? data.order?.total_price ?? 0);
+
     const evidenceHeader = isDelivery ? '' : '<th class="text-center">증빙</th>';
     const evidenceNotice = isDelivery ? '' : '<div class="mt-2 text-xs text-gray-500">* 환불/교환하려는 상품의 <b>사진 업로드</b> 버튼을 눌러 증빙 이미지를 올려주세요.</div>';
 
     const html = `
-    <div class="order-details-bubble" data-order-code="${code}">
-      <div class="mb-2 font-semibold text-gray-800">주문 #${code}</div>
-      <div class="text-xs text-gray-500 mb-2">${date}${status ? ` · 상태: ${status}` : ''}</div>
-      <div class="rounded-lg border overflow-hidden">
-        <table class="w-full text-sm">
-          <thead class="bg-gray-50">
-            <tr>
-              <th class="text-left py-2 pl-3">#</th>
-              <th class="text-left">상품명</th>
-              <th class="text-right">단가</th>
-              <th class="text-right">수량</th>
-              <th class="text-right">금액</th>
-              ${evidenceHeader}
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>
-      ${evidenceNotice}
-      <div class="mt-2 text-sm">
-        <div class="flex justify-between"><span class="text-gray-600">상품 합계</span><span class="font-medium">${this.formatPrice(subtotal)}원</span></div>
-        ${discount > 0 ? `<div class="flex justify-between"><span class="text-gray-600">할인</span><span class="font-medium">- ${this.formatPrice(discount)}원</span></div>` : ''}
-        <div class="flex justify-between mt-1"><span class="font-semibold">총 결제금액</span><span class="font-bold text-blue-600">${this.formatPrice(total)}원</span></div>
-      </div>
-    </div>
-  `;
+      <div class="order-details-bubble" data-order-code="${code}">
+        <div class="mb-2 font-semibold text-gray-800">주문 #${code}</div>
+        <div class="text-xs text-gray-500 mb-2">${date}${status ? ` · 상태: ${status}` : ''}</div>
 
+        <div class="rounded-lg border overflow-hidden">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50">
+              <tr>
+                <th class="text-left py-2 pl-3">#</th>
+                <th class="text-left">상품명</th>
+                <th class="text-right">단가</th>
+                <th class="text-right">수량</th>
+                <th class="text-right">금액</th>
+                ${evidenceHeader}
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+
+        <div class="mt-2 text-sm">
+          <div class="flex justify-between"><span class="text-gray-600">상품 합계</span><span class="font-medium">${this.formatPrice(subtotal)}원</span></div>
+          <div class="flex justify-between"><span class="text-gray-600">배송비</span><span class="font-medium">${this.formatPrice(shipping)}원</span></div>
+          <div class="flex justify-between"><span class="text-gray-600">할인</span><span class="font-medium text-red-600">- ${this.formatPrice(discount)}원</span></div>
+          <div class="flex justify-between mt-1 pt-1 border-t border-gray-200"><span class="font-semibold">총 결제금액</span><span class="font-bold text-blue-600">${this.formatPrice(total)}원</span></div>
+        </div>
+
+        ${evidenceNotice}
+      </div>`;
     this.addMessage(html, 'bot');
   }
+
 }
 
 document.addEventListener('DOMContentLoaded', () => { new ChatBot(); });

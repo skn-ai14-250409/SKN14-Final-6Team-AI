@@ -1,4 +1,4 @@
--- Active: 1753665154697@@127.0.0.1@3306@qook_chatbot
+-- Active: 1753666109889@@127.0.0.1@3306@qook_chatbot
 -- =========================================
 -- Qook 신선식품 챗봇: 병합 정규화 SQL (seed + new)
 -- =========================================
@@ -241,10 +241,17 @@ INSERT INTO history_tbl (history_id, log_id, message_text, role, created_time) V
 -- --------------------------
 -- 주문
 -- --------------------------
-INSERT INTO order_tbl (order_code, user_id, order_date, total_price, order_status) VALUES
-(1001, 'user001', '2024-09-02', '6000', 'completed'),
-(1002, 'user002', '2024-09-02', '3500', 'pending'),
-(1003, 'user003', '2024-09-02', '15000', 'shipped');
+-- INSERT INTO order_tbl (order_code, user_id, order_date, total_price, order_status, ) VALUES
+-- (1001, 'user001', '2024-09-02', '6000', 'completed'),
+-- (1002, 'user002', '2024-09-02', '3500', 'pending'),
+-- (1003, 'user003', '2024-09-02', '15000', 'shipped');
+
+INSERT INTO order_tbl (
+  order_code, user_id, order_date, total_price, order_status, subtotal, discount_amount, shipping_fee, membership_tier_at_checkout
+) VALUES
+(1001,'user001','2024-09-02', 5400,'completed',6000, 600, 0,(SELECT COALESCE(d.membership,'BASIC') FROM user_detail_tbl d WHERE d.user_id='user001' LIMIT 1)),
+(1002,'user002','2024-09-02', 8400,'pending', 6000, 600, 3000,(SELECT COALESCE(d.membership,'BASIC') FROM user_detail_tbl d WHERE d.user_id='user002' LIMIT 1)),
+(1003,'user003','2024-09-02',13500,'shipped',15000, 1500, 0, (SELECT COALESCE(d.membership,'BASIC') FROM user_detail_tbl d WHERE d.user_id='user003' LIMIT 1));
 
 -- --------------------------
 -- 주문 상세
