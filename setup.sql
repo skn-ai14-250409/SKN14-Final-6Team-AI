@@ -1,4 +1,3 @@
--- Active: 1753665154697@@127.0.0.1@3306@qook_chatbot
 -- Qook 신선식품 챗봇 데이터베이스 설정
 -- 데이터베이스 생성 및 사용자 설정
 
@@ -311,3 +310,26 @@ ORDER BY TABLE_NAME, COLUMN_NAME;
 
 ALTER TABLE refund_tbl
   CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- =========================
+-- Tavily URL 기반 레시피 즐겨찾기
+-- =========================
+CREATE TABLE IF NOT EXISTS recipe_favorite_tbl (
+    user_id        VARCHAR(50)  NOT NULL,
+    recipe_url     VARCHAR(1000) NOT NULL,
+    url_hash       CHAR(64) AS (SHA2(recipe_url, 256)) STORED,
+    source         ENUM('tavily','external','internal') DEFAULT 'tavily',
+    recipe_title   VARCHAR(200),
+    image_url      VARCHAR(500),
+    site_name      VARCHAR(100),
+    snippet        VARCHAR(1000),
+    tags           JSON,
+    fetched_at     DATETIME,
+    favorited_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, url_hash),
+    CONSTRAINT fk_recipefav_user
+      FOREIGN KEY (user_id) REFERENCES userinfo_tbl(user_id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_recipefav_user_time ON recipe_favorite_tbl(user_id, favorited_at DESC);
+CREATE INDEX idx_recipefav_source    ON recipe_favorite_tbl(source);
