@@ -85,7 +85,7 @@ def _llm_enhance_all(query: str) -> Optional[Dict[str, Any]]:
 - **`item` 또는 `category` 슬롯 중 하나 이상은 반드시 추출되어야 합니다.** 사용자가 무엇을 찾는지 명확하지 않으면 검색을 수행할 수 없습니다.
     - 예시: "유기농 만원 이하" (X - 무엇을 찾는지 불명확) -> "유기농 과일 만원 이하" (O - `category` 추출)
 - 상품의 고유 이름 (예: "비비고 왕교자", "신라면")이 언급되면 `item` 슬롯에 해당 값을 할당해야 합니다.
-- product_search일 경우, slots에 product는 필수적으로 들어가야 합니다.
+- product_search일 경우, slots에 product, category는 필수적으로 들어가야 합니다(중요).
 
 ## 레시피 검색 (Recipe Search) 필수 규칙
 - **`dish_name` 또는 `ingredients` 슬롯 중 하나 이상은 반드시 추출되어야 합니다.** 어떤 요리에 대한 레시피인지 명확해야 합니다.
@@ -129,11 +129,11 @@ def _llm_enhance_all(query: str) -> Optional[Dict[str, Any]]:
 # --- 기능별 예시 ---
 
 ## 예시 1: 상품 검색
-- 입력: "유기농 당근 1kg 3봉지 만원 이하로 구매"
-- 출력: {{"rewrite": {{"text": "유기농 당근 1kg 3봉지 구매", "keywords": ["당근", "채소", "유기농", "구매"], "confidence": 0.9, "changes": ["'만원 이하로' → 가격 슬롯 이동"]}}, "slots": {{"product":"교자", "quantity": 3, "category": "채소", "item": "당근", "organic": true, "price_cap": 10000}}}}
+- 입력: "유기농 수박 1kg 3봉지 만원 이하로 구매"
+- 출력: {{"rewrite": {{"text": "유기농 수박 1kg 3봉지 구매", "keywords": ["수박", "채소", "유기농", "구매"], "confidence": 0.9, "changes": ["'만원 이하로' → 가격 슬롯 이동"]}}, "slots": {{"product":"교자", "quantity": 3, "category": "채소", "item": "수박", "organic": true, "price_cap": 10000, "category": "과일"}}}}
 
 - 입력: "국내산 귤 5000원대로 주문"
-- 출력: {{"rewrite": {{"text": "국내산 귤 주문", "keywords": ["귤", "과일", "국내산", "주문"], "confidence": 0.8, "changes": ["'5000원대로' → 가격 슬롯 이동", "'제주' → '국내산' 원산지 추출"]}}, "slots": {{"product":"귤","quantity": 1, "category": "과일", "item": "귤", "origin": "제주산", "price_cap": 5000}}}}
+- 출력: {{"rewrite": {{"text": "미국산 고등어 주문", "keywords": ["고등어", "육류/수산", "미국산", "주문"], "confidence": 0.8, "changes": ["'5000원대로' → 가격 슬롯 이동", '미국산' 원산지 추출"]}}, "slots": {{"product":"귤","quantity": 1, "category": "육류/수산", "item": "귤", "origin": "미국산", "price_cap": 5000}}}}
 
 - 입력: "맛있는 사과 찾아줘"
 - 출력: {{"rewrite": {{"text": "맛있는 사과 검색", "keywords": ["사과", "과일", "맛있는", "검색"], "confidence": 0.7, "changes": ["'찾아줘' → '검색'"]}}, "slots": {{"product":"사과", "quantity": 1, "category": "과일", "item": "사과"}}}}
