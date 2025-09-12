@@ -63,13 +63,13 @@
       const rate = Math.round((opt.discount_rate||0)*100);
       const thr = Math.round(opt.free_shipping_threshold||0);
       const fee = Math.round(opt.monthly_fee||0);
+      const feeText = fee === 0 ? '기본' : `월 ${fee.toLocaleString('ko-KR')}원`;
       const features = (opt.features||[]).map(f=>`<li class="text-sm text-gray-600">• ${escapeHtml(f)}</li>`).join('');
       card.innerHTML = `
         <div class="flex items-center justify-between mb-2">
           <h3 class="text-lg font-bold text-gray-800">${escapeHtml(opt.membership_name)}</h3>
-          <span class="text-sm text-gray-500">월 ${fee.toLocaleString('ko-KR')}원</span>
+          <span class="text-sm text-gray-500">${feeText}</span>
         </div>
-        <div class="text-sm text-gray-700 mb-2">할인: ${rate}% · 무료배송 기준: ${thr===0?'항상 무료':thr.toLocaleString('ko-KR')+'원 이상'}</div>
         <ul class="mb-4">${features}</ul>
         <button class="mt-auto w-full bg-green-600 hover:bg-green-700 text-white rounded-lg py-2 select-btn" data-name="${escapeHtml(opt.membership_name)}">선택</button>
       `;

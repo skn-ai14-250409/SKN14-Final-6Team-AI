@@ -13,8 +13,6 @@
   width: 25px;
   height: 35px;
   animation: farmer-walk 5s linear;
-  transform: translateZ(0);
-  will-change: transform;
 }
 
 .hat {
@@ -37,7 +35,7 @@
 }
 
 .eye {
-  width: 3px;
+  width: 3.2px;
   height: 3px;
   background: #000;
   border-radius: 50%;
