@@ -98,9 +98,14 @@ CREATE TABLE order_tbl (
     order_code INT AUTO_INCREMENT PRIMARY KEY,
     user_id VARCHAR(45) NOT NULL,
     order_date VARCHAR(45) NOT NULL,
-    total_price VARCHAR(45) NOT NULL,
+    total_price INT NOT NULL,
     order_status VARCHAR(20) DEFAULT 'pending',
     FOREIGN KEY (user_id) REFERENCES userinfo_tbl(user_id) ON DELETE CASCADE
+    SUBTOTAL INT, --할인전 상품금액(합계)
+    discount_rate_applied FLOAT, --적용한 할인율
+    discount_amount INT --할인금액
+    shipping_fee INT --배송비(0 or 3000)
+    membership_tier_at_checkout VARCHAR(20) --결제 당시 멤버십 등급
 );
 
 -- 주문 상세 테이블
@@ -206,11 +211,12 @@ CREATE TABLE IF NOT EXISTS membership_tbl (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+
 -- 기본 멤버십 데이터 삽입
 INSERT IGNORE INTO membership_tbl (membership_name, description, benefits, monthly_fee, discount_rate, free_shipping_threshold) VALUES
-('basic', '기본 회원', '{"features": ["기본 주문", "고객지원"]}', 0, 0.00, 30000),
-('gold', '회원', '{"features": ["무료배송", "우선 고객지원", "5% 할인"]}', 9900, 0.05, 0),
-('premium', '골드 회원', '{"features": ["무료배송", "VIP 고객지원", "10% 할인", "신상품 우선 구매"]}', 19900, 0.10, 0);
+('basic', '기본 회원', '{"features": ["고객지원", "무료배송(무료배송 기준: 30,000원 이상)"]}', 0, 0.00, 30000),
+('gold', '골드 회원', '{"features": ["5% 할인", "우선 고객지원", "무료배송(무료배송 기준: 15,000원 이상)"]}', 4900, 0.05, 15000),
+('premium', '프리미엄 회원', '{"features": ["10% 할인", "VIP 전담 매니저", "무료배송(금액 무관)", "신상품 우선 구매"]}', 9900, 0.10, 0);
 
 
 
