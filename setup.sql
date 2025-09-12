@@ -101,12 +101,11 @@ CREATE TABLE order_tbl (
     order_date VARCHAR(45) NOT NULL,
     total_price INT NOT NULL,
     order_status VARCHAR(20) DEFAULT 'pending',
+    SUBTOTAL INT, 
+    discount_amount INT, 
+    shipping_fee INT, 
+    membership_tier_at_checkout VARCHAR(20),
     FOREIGN KEY (user_id) REFERENCES userinfo_tbl(user_id) ON DELETE CASCADE
-    SUBTOTAL INT, --할인전 상품금액(합계)
-    discount_rate_applied FLOAT, --적용한 할인율
-    discount_amount INT --할인금액
-    shipping_fee INT --배송비(0 or 3000)
-    membership_tier_at_checkout VARCHAR(20) --결제 당시 멤버십 등급
 );
 
 -- 주문 상세 테이블
