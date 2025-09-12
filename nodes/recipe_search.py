@@ -260,7 +260,7 @@ def _quick_validate_url(url: str) -> bool:
         return False
 
 def _search_with_tavily(query: str) -> List[Dict[str, Any]]:
-    """Tavily API로 레시피를 검색합니다. (간결한 필터링)"""
+    """Tavily API로 레시피를 검색하고, 결과를 섞은 후 검증합니다."""
     try:
         from tavily import TavilyClient
         client = TavilyClient(api_key=TAVILY_API_KEY)
@@ -268,28 +268,32 @@ def _search_with_tavily(query: str) -> List[Dict[str, Any]]:
         logger.info(f"Tavily 검색 실행: '{query}'")
         
         # 검색 쿼리에 제외 키워드 추가
-        enhanced_query = f"{query} 레시피 -youtube -instagram -facebook -tiktok"
+        enhanced_query = f"{query} 레시피 -youtube -instagram -facebook -tiktok -blog.naver.com"
         
         search_result = client.search(
             query=enhanced_query,
             search_depth="basic",
-            max_results=8  # 필터링을 고려해 여유있게
+            max_results=20  # ## 변경점 2: 검색 결과 요청 개수를 20개로 늘림
         )
         
+        # ## 변경점 3: 받아온 검색 결과를 리스트로 만들고 순서를 무작위로 섞음
+        search_results_list = search_result.get("results", [])
+        random.shuffle(search_results_list)
+
         validated_results = []
         
-        for res in search_result.get("results", []):
+        # 무작위로 섞인 리스트를 순회하며 검증 시작
+        for res in search_results_list:
             url = res.get("url", "")
             
             # 1단계: 기본 URL 패턴 검증
             if not url or not _is_crawlable_url(url):
                 continue
             
-            # 2단계: 실제 접근 가능성 검증 (처음 몇 개만)
-            if len(validated_results) < 5:  # 처음 5개만 실제 검증
-                if not _quick_validate_url(url):
-                    logger.info(f"접근 불가능한 URL 제외: {url}")
-                    continue
+            # 2단계: 실제 접근 가능성 검증 (네트워크 요청 최소화를 위해 필요한 만큼만)
+            if not _quick_validate_url(url):
+                logger.info(f"접근 불가능한 URL 제외: {url}")
+                continue
             
             validated_results.append({
                 "title": res.get("title", "제목 없음"),
@@ -297,7 +301,7 @@ def _search_with_tavily(query: str) -> List[Dict[str, Any]]:
                 "description": res.get("content", "")[:150]
             })
             
-            # 원하는 개수만큼 찾으면 중단
+            # 원하는 개수(3개)만큼 찾으면 중단
             if len(validated_results) >= 3:
                 break
         
@@ -357,14 +361,16 @@ def _llm_extract_recipe_content(page_text: str) -> Dict[str, Any]:
 **추출 규칙:**
 1. **title**: 요리의 정확한 이름 (예: "김치찌개", "수박화채")
 2. **ingredients**: 쇼핑몰에서 구매 가능한 신선식품 재료만 추출
-   - 기본 명사 형태로만 추출: '수박', '돼지고기', '양파'
-   - 양념/조미료는 포함하되 단위/수량 제외: '간장', '참기름'
-   - 가공식품은 구매 가능하면 포함: '두부', '면'
-   - 제외할 것: 물, 소금, 후추, 설탕 등 기본 양념
+    - name: 재료의 핵심 명사 형태로 표준화합니다. (예: '대파', '양파', '돼지고기')
+    - quantity: 수량을 정확히 추출합니다. 분수('1/2')는 소수점(0.5)으로 변환하고, 수량이 명시되지 않으면 1로 간주합니다.
+    - unit: 단위를 정확히 추출합니다. (예: 'g', '개', '컵', 'T', 't')
+    - 포함할 것: 신선식품(육류, 채소, 과일), 구매 가능한 가공식품(두부, 면, 통조림), 양념/조미료(간장, 된장, 참기름, 다진 마늘)
+    - 제외할 것: 물, 소금, 후추, 설탕, 식용유 등 사용자가 기본적으로 보유하고 있을 법한 품목
 3. **instructions**: 고객이 이해하기 쉬운 조리법 요약
-   - 핵심 단계만 간단히 정리
-   - 각 단계는 '\n'으로 구분
-   - 전문 용어보다는 일반적인 표현 사용
+    - 초보자도 쉽게 이해할 수 있도록 각 단계를 상세하고 친절하게 설명합니다.
+    - 각 단계는 '\n'으로 구분(중요)
+    - 전문 용어보다는 일반적인 표현 사용
+    - 가열 온도(예: 중불), 조리 시간(예: 5분간) 등 구체적인 정보를 포함합니다.
 
 **출력 형식:**
 반드시 다음 JSON 구조로만 응답하세요:
@@ -381,9 +387,9 @@ def _llm_extract_recipe_content(page_text: str) -> Dict[str, Any]:
 출력:
 ```json
 {
-    "title": "돼지고기 김치찌개",
-    "ingredients": ["돼지고기", "김치", "양파", "대파", "두부", "고춧가루", "간장"],
-    "instructions": "1. 돼지고기를 먼저 볶아 기름을 낸다\n2. 김치와 양파를 넣고 함께 볶는다\n3. 물을 부어 끓인 후 두부와 대파를 넣는다\n4. 간장과 고춧가루로 간을 맞춘다"
+  "title": "돼지고기 김치찌개",
+  "ingredients": ["돼지고기", "김치", "두부", "양파", "대파", "국간장", "고춧가루"],
+  "instructions": "1. 달군 냄비에 돼지고기를 넣고 중불에서 겉면이 익을 때까지 약 3분간 볶아줍니다.\n2. 돼지고기가 익으면 김치를 넣고 5분간 함께 충분히 볶아 깊은 맛을 더해줍니다.\n3. 물을 자작하게 붓고 끓어오르면, 국간장과 고춧가루를 넣고 중불에서 10분간 더 끓여줍니다.\n4. 마지막으로 두부, 양파, 대파를 넣고 5분간 한소끔 더 끓여 완성합니다."
 }
 ```
 

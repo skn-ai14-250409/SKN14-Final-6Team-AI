@@ -184,15 +184,31 @@ async def select_membership(payload: MembershipSelect, user_id: str = Depends(ve
             cur.execute("SELECT 1 FROM membership_tbl WHERE membership_name=%s", (payload.membership,))
             if not cur.fetchone():
                 raise HTTPException(status_code=400, detail="존재하지 않는 멤버십입니다.")
-            # user_detail_tbl 업데이트 (없으면 생성 가정 시 UPDATE만 수행)
-            cur.execute(
-                "UPDATE user_detail_tbl SET membership=%s WHERE user_id=%s",
-                (payload.membership, user_id)
-            )
-            if cur.rowcount == 0:
-                # 기본 행이 없을 수 있으므로 INSERT 시도 (최소 필드만)
+            
+            # 사용자가 userinfo_tbl에 존재하는지 확인
+            cur.execute("SELECT 1 FROM userinfo_tbl WHERE user_id=%s", (user_id,))
+            if not cur.fetchone():
+                raise HTTPException(status_code=400, detail="유효하지 않은 사용자입니다.")
+            
+            # 현재 사용자의 멤버십 확인
+            cur.execute("SELECT membership FROM user_detail_tbl WHERE user_id=%s", (user_id,))
+            current_membership = cur.fetchone()
+            
+            # 이미 같은 멤버십이 적용된 경우
+            if current_membership and current_membership[0] == payload.membership:
+                return {"success": True, "membership": payload.membership, "message": "현재 적용 중인 멤버십입니다."}
+            
+            # user_detail_tbl 업데이트 또는 삽입 (UPSERT 방식)
+            if current_membership:
+                # 기존 레코드가 있으면 업데이트
                 cur.execute(
-                    "INSERT INTO user_detail_tbl (user_id, membership) VALUES (%s,%s)",
+                    "UPDATE user_detail_tbl SET membership=%s WHERE user_id=%s",
+                    (payload.membership, user_id)
+                )
+            else:
+                # 기존 레코드가 없으면 새로 삽입 (기본값들과 함께)
+                cur.execute(
+                    "INSERT INTO user_detail_tbl (user_id, membership, house_hold, vegan) VALUES (%s, %s, 1, 0)",
                     (user_id, payload.membership)
                 )
             conn.commit()
@@ -214,8 +230,8 @@ async def register(user_data: UserRegistration, response: Response):
         # 필드 정규화: 프론트 이름/키 차이를 서버 스키마에 맞춤
         payload = user_data.dict()
         # phone -> phone_num
-        # if not payload.get("phone_num") and payload.get("phone"):
-        #     payload["phone_num"] = payload.get("phone")
+        if not payload.get("phone_num") and payload.get("phone"):
+            payload["phone_num"] = payload.get("phone")
         # household -> house_hold (정수 변환 안전)
         if not payload.get("house_hold") and payload.get("household") is not None:
             try:
@@ -285,23 +301,18 @@ async def login(user_login: UserLogin, response: Response, request: Request):
     """로그인"""
     try:
         result = auth_manager.authenticate_user(user_login.email, user_login.password)
-                    
+        # 세션/로그 기록 (비침투)
+        try:
+            ua = request.headers.get('user-agent', '')
+            ip = request.client.host if request and request.client else ''
+            exp = datetime.utcnow() + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)
+            db_audit.insert_user_session(user["user"]["user_id"], _safe_session_id(access_token), exp, ua, ip)
+        except Exception as e:
+            logger.warning(f"login audit 실패: {e}")
+            
         if result["success"]:
             user = result["user"]
             access_token = create_access_token(data={"sub": user["user_id"]})
-
-            # 세션/로그 기록 (비침투)
-            try:
-                ua = request.headers.get('user-agent', '')
-                ip = request.client.host if request and request.client else ''
-                exp = datetime.utcnow() + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)
-
-                db_audit.insert_user_session(user["user_id"], _safe_session_id(access_token), exp, ua, ip)
-
-                # userlog_tbl에 로그인 시간 기록 (채팅 시작이 아닌 로그인 시점에)
-                db_audit.ensure_userlog_for_session(user["user_id"], _safe_session_id(access_token))
-            except Exception as e:
-                logger.warning(f"login audit 실패: {e}")
             
             # HTTP-Only 쿠키로도 토큰 설정 (보안 강화)
             response.set_cookie(
@@ -331,12 +342,11 @@ async def login(user_login: UserLogin, response: Response, request: Request):
 async def logout(response: Response, user_id: str = Depends(verify_token)):
     """로그아웃"""
     try:
-        # 쿠키 제거
+        # 모든 쿠키 제거
         response.delete_cookie(key="access_token")
+        response.delete_cookie(key="user_id")
         try:
             db_audit.deactivate_user_sessions(user_id)
-            db_audit.finish_userlog_for_user(user_id)
-            logger.info(f"logout audit 성공: {user_id}")
         except Exception as e:
             logger.warning(f"logout audit 실패: {e}")
         

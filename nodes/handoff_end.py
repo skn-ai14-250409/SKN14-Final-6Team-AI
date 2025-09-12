@@ -14,6 +14,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 from dataclasses import asdict
+import numpy as np
 
 # 상대 경로로 graph_interfaces 임포트
 import sys
@@ -101,6 +102,14 @@ class ConversationSummarizer:
 # F역할 핵심 함수 구현
 # ============================================================================
 
+def _create_message():
+    
+    count = np.random.randint(0, 15)
+    min = count*3
+
+    return f"현재 고객님 앞에는 {count}명이 대기 중입니다. 예상 대기 시간은 약 {min}분입니다. 잠시만 기다려 주세요."
+
+
 def handoff(state: ChatState) -> Dict[str, Any]:
     """
     상담사 이관
@@ -150,13 +159,15 @@ def handoff(state: ChatState) -> Dict[str, Any]:
         crm_result = crm_adapter.create_ticket(ticket_data)
         
         # 5. 핸드오프 상태 업데이트
+        msg = _create_message()
         handoff_result = {
             "ticket_id": state.cs.get("ticket", {}).get("ticket_id", f"T-{uuid.uuid4().hex[:8]}"),
             "crm_id": crm_result["crm_id"],
             "status": "sent",
             "handoff_reason": handoff_reason,
             "created_at": datetime.now().isoformat(),
-            "estimated_response_time": "30분 이내"
+            "estimated_response_time": "3분 이내",
+            "message": msg,
         }
         
         logger.info("상담사 이관 완료", extra={

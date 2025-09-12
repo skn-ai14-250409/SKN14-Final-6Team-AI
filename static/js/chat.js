@@ -80,6 +80,9 @@ class ChatBot {
     this.pendingEvidence = null;        // { orderCode, product }
     this.evidenceInput = null;          // <input type="file">
     this.lastOrdersKey = null; // 주문 선택 UI 중복 방지
+    
+    // 배송문의 상태 추적
+    this.isCurrentlyDeliveryInquiry = false;
 
     this.init();
   }
@@ -1113,48 +1116,59 @@ URL: ${recipe.url||''}
     }
   }
 
-  // CS: 환불/교환 주문 선택 UI
-  updateCS(cs) {
-    if (!cs || !Array.isArray(cs.orders) || cs.orders.length === 0) return;
+//환불/교환/배송문의 UI
 
-    const key = cs.orders.map(o => String(o.order_code)).join(',');
-    if (this.lastOrdersKey === key) return; // ✅ 같은 리스트면 또 안붙임
+updateCS(cs) {
+  if (!cs || !Array.isArray(cs.orders) || cs.orders.length === 0) return;
+
+  // 배송문의 식별: 서버가 내려주는 플래그/카테고리로 체크
+  const isDelivery = !!cs.always_show || cs.category === '배송' || cs.list_type === 'delivery';
+  
+  // 배송문의 상태를 클래스 속성에 저장
+  this.isCurrentlyDeliveryInquiry = isDelivery;
+
+  const key = cs.orders.map(o => String(o.order_code)).join(',');
+
+  // 배송문의가 아니면 중복 방지 유지
+  if (!isDelivery) {
+    if (this.lastOrdersKey === key) return;
     this.lastOrdersKey = key;
+  }
+  // 배송문의면 캐시를 건드리지 않음 → 항상 표시
 
-    const messages = document.getElementById('messages');
-    const wrap = document.createElement('div');
-    wrap.className = 'mb-4 message-animation';
-    const hint = this.escapeHtml(cs.message);
+  const messages = document.getElementById('messages');
+  const wrap = document.createElement('div');
+  wrap.className = 'mb-4 message-animation';
+  const hint = this.escapeHtml(cs.message);
 
-    const itemsHtml = cs.orders.map(o => {
-      const date = this.escapeHtml(o.order_date || '');
-      const price = Number(o.total_price || 0).toLocaleString();
-      const code = this.escapeHtml(String(o.order_code));
-      const status = this.escapeHtml(o.order_status || '');
-
-      return `
-        <button class="order-select-btn px-3 py-2 rounded-lg border hover:bg-blue-50 w-full text-left"
-                data-order="${code}">
-          <div class="flex items-center justify-between">
-            <div class="font-medium">주문 #${code}</div>
-            <div class="text-sm text-gray-500">${date} · ${price}원</div>
-          </div>
-          <div class="text-xs text-gray-500 mt-1">상태: ${status}</div>
-        </button>`;
-    }).join('');
-
-    wrap.innerHTML = `
-      <div class="flex items-start">
-        <div class="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center mr-3 flex-shrink-0">
-          <i class="fas fa-robot text-green-600 text-sm"></i>
+  const itemsHtml = cs.orders.map(o => {
+    const date = this.escapeHtml(o.order_date || '');
+    const price = Number(o.total_price || 0).toLocaleString();
+    const code = this.escapeHtml(String(o.order_code));
+    const status = this.escapeHtml(o.order_status || '');
+    return `
+      <button class="order-select-btn px-3 py-2 rounded-lg border hover:bg-blue-50 w-full text-left"
+              data-order="${code}">
+        <div class="flex items-center justify-between">
+          <div class="font-medium">주문 #${code}</div>
+          <div class="text-sm text-gray-500">${date} · ${price}원</div>
         </div>
-        <div class="message-bubble-bot">
-          <div class="mb-2">${hint}</div>
-          <div class="grid grid-cols-1 gap-2">${itemsHtml}</div>
-        </div>
-      </div>`;
-    messages.appendChild(wrap);
-    this.scrollToBottom();
+        <div class="text-xs text-gray-500 mt-1">상태: ${status}</div>
+      </button>`;
+  }).join('');
+
+  wrap.innerHTML = `
+    <div class="flex items-start">
+      <div class="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center mr-3 flex-shrink-0">
+        <i class="fas fa-robot text-green-600 text-sm"></i>
+      </div>
+      <div class="message-bubble-bot">
+        <div class="mb-2">${hint}</div>
+        <div class="grid grid-cols-1 gap-2">${itemsHtml}</div>
+      </div>
+    </div>`;
+  messages.appendChild(wrap);
+  this.scrollToBottom();
 }
 
   // 주문 선택 버튼 클릭
@@ -1173,6 +1187,9 @@ URL: ${recipe.url||''}
     if (!row) return;
     const bubble = row.closest('.order-details-bubble');
     if (!bubble) return;
+
+    // 배송문의일 때는 행 클릭을 무시
+    if (this.isCurrentlyDeliveryInquiry) return;
 
     const product = row.dataset.product || '';
     const orderCode = bubble.dataset.orderCode || '';
@@ -1456,6 +1473,8 @@ renderEvidenceResultBubble(data, ctx){
         return;
       }
 
+      // 배송문의 상태를 data 객체에 추가하여 전달
+      data.isDeliveryInquiry = this.isCurrentlyDeliveryInquiry;
       this.renderOrderDetailsBubble(data);
     } catch (err) {
       console.error('order details error:', err);
@@ -1465,11 +1484,14 @@ renderEvidenceResultBubble(data, ctx){
     }
   }
 
-  // 주문 상세 말풍선: "사진 업로드" 버튼 추가
+  // 주문 상세 말풍선: 배송문의면 "사진 업로드" 버튼 제거
   renderOrderDetailsBubble(data) {
     const code = this.escapeHtml(String(data.order_code || ''));
     const date = this.escapeHtml(data.order_date || '');
     const status = this.escapeHtml(data.order_status || '');
+    
+    // 배송문의 여부 판단 (서버 데이터 또는 클래스 속성에서 확인)
+    const isDelivery = data.isDeliveryInquiry || data.allow_evidence === false || data.category === '배송' || data.list_type === 'delivery';
 
     const rows = (data.items || []).map((it, idx) => {
       const rawName = it.product || it.name || '';
@@ -1477,6 +1499,16 @@ renderEvidenceResultBubble(data, ctx){
       const qty = Number(it.quantity || it.qty || 0);
       const price = Number(it.price || it.unit_price || 0);
       const line = price * qty;
+      
+      // 배송문의가 아닌 경우에만 증빙 컬럼과 버튼 추가
+      const evidenceCell = isDelivery ? '' : `
+        <td class="py-1 text-center">
+          <button class="evidence-upload-btn px-2 py-1 text-xs border rounded hover:bg-blue-50"
+                  data-order="${code}" data-product="${name}">
+            <i class="fas fa-camera mr-1"></i>사진 업로드
+          </button>
+        </td>`;
+      
       return `
       <tr class="border-b order-item-row" data-product="${name}" data-qty="${qty}">
         <td class="py-1 pr-3 text-gray-800">${idx + 1}.</td>
@@ -1484,12 +1516,7 @@ renderEvidenceResultBubble(data, ctx){
         <td class="py-1 pr-3 text-right">${this.formatPrice(price)}원</td>
         <td class="py-1 pr-3 text-right">${qty}</td>
         <td class="py-1 text-right font-medium">${this.formatPrice(line)}원</td>
-        <td class="py-1 text-center">
-          <button class="evidence-upload-btn px-2 py-1 text-xs border rounded hover:bg-blue-50"
-                  data-order="${code}" data-product="${name}">
-            <i class="fas fa-camera mr-1"></i>사진 업로드
-          </button>
-        </td>
+        ${evidenceCell}
       </tr>
     `;
     }).join('');
@@ -1497,6 +1524,10 @@ renderEvidenceResultBubble(data, ctx){
     const subtotal = Number(data.subtotal || data.total_price || 0);
     const total    = Number(data.total || subtotal);
     const discount = Math.max(0, Number(data.discount || 0));
+    
+    // 테이블 헤더에서도 배송문의면 증빙 컬럼 제거
+    const evidenceHeader = isDelivery ? '' : '<th class="text-center">증빙</th>';
+    const evidenceNotice = isDelivery ? '' : '<div class="mt-2 text-xs text-gray-500">* 환불/교환하려는 상품의 <b>사진 업로드</b> 버튼을 눌러 증빙 이미지를 올려주세요.</div>';
 
     const html = `
     <div class="order-details-bubble" data-order-code="${code}">
@@ -1511,13 +1542,13 @@ renderEvidenceResultBubble(data, ctx){
               <th class="text-right">단가</th>
               <th class="text-right">수량</th>
               <th class="text-right">금액</th>
-              <th class="text-center">증빙</th>
+              ${evidenceHeader}
             </tr>
           </thead>
           <tbody>${rows}</tbody>
         </table>
       </div>
-      <div class="mt-2 text-xs text-gray-500">* 환불/교환하려는 상품의 <b>사진 업로드</b> 버튼을 눌러 증빙 이미지를 올려주세요.</div>
+      ${evidenceNotice}
       <div class="mt-2 text-sm">
         <div class="flex justify-between"><span class="text-gray-600">상품 합계</span><span class="font-medium">${this.formatPrice(subtotal)}원</span></div>
         ${discount > 0 ? `<div class="flex justify-between"><span class="text-gray-600">할인</span><span class="font-medium">- ${this.formatPrice(discount)}원</span></div>` : ''}
