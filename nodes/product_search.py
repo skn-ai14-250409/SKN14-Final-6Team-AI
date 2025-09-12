@@ -3,19 +3,14 @@ import os
 import re
 import json
 from typing import Dict, List, Any, Optional
-
-# DB 커넥터 및 커넥션 풀 임포트
 from mysql.connector import Error
 from mysql.connector.pooling import MySQLConnectionPool
-
-# FastAPI 환경에 맞게 수정된 임포트
 import sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from graph_interfaces import ChatState
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 logger = logging.getLogger('chatbot.product_search')
 
-# 조건부 임포트 - scikit-learn
 try:
     from sklearn.feature_extraction.text import TfidfVectorizer
     from sklearn.metrics.pairwise import cosine_similarity
@@ -24,7 +19,6 @@ except ImportError:
     SKLEARN_AVAILABLE = False
     logger.warning("scikit-learn not available. Using simple text matching.")
 
-# OpenAI 클라이언트 (환경변수에서 키를 가져옴)
 try:
     import openai
     openai_api_key = os.getenv("OPENAI_API_KEY")
@@ -78,13 +72,11 @@ def _format_product_from_db(p: Dict[str, Any]) -> Dict[str, Any]:
                 6: '냉동식품', 7: '조미료/소스', 8: '음료', 9: '베이커리', 10: '기타'}
     p['category_text'] = cat_map.get(p.get('category_id'), '기타')
     
-    # ## 변경된 부분: p.get('item', '')을 search_text에 추가
     p['search_text'] = f"{p.get('name', '')} {p.get('item', '')} {p.get('origin', '')} {p['category_text']} {'유기농' if p['organic'] else ''}"
     return p
 
 class ProductSearchEngine:
     """통합 상품 검색 엔진"""
-    
     def __init__(self):
         self.product_data = []
         self.tfidf_vectorizer = None
@@ -93,7 +85,6 @@ class ProductSearchEngine:
         self._load_data_from_db()
     
     def _get_db_schema(self) -> str:
-        # ## 변경된 부분: 새로운 setup.sql의 스키마 정보를 반영
         return """
         CREATE TABLE product_tbl (
             product VARCHAR(45) PRIMARY KEY,
@@ -126,10 +117,8 @@ class ProductSearchEngine:
         if not conn:
             logger.error("DB 연결 실패로 상품 데이터를 로드할 수 없습니다.")
             return
-
         try:
             with conn.cursor(dictionary=True) as cursor:
-                # ## 변경된 부분: item_tbl JOIN을 제거하고 새로운 구조에 맞게 SQL 수정
                 sql = """
                     SELECT 
                         p.product as name,
@@ -160,42 +149,45 @@ class ProductSearchEngine:
             if conn and conn.is_connected():
                 conn.close()
 
-    def search_products(self, query: str, slots: Dict[str, Any]) -> Dict[str, Any]:
-        logger.info(f"상품 검색 시작 - Query: {query}, Slots: {slots}")
-        
+    def search_products(self, state: ChatState) -> Dict[str, Any]:
+        """
+        Text2SQL 또는 RAG를 사용하여 상품을 검색하고, LLM으로 결과를 필터링합니다.
+        """
+        # state에서 쿼리와 슬롯을 가져옵니다. 재작성된 텍스트를 우선 사용합니다.
+        query = state.rewrite.get('text', state.query)
+        slots = state.slots or {}
+
         # 1차 검색 수행
         result = None
-        
         if openai_client:
             sql_query = self._generate_sql(query, slots)
-            logger.info(f"생성된 SQL: {sql_query}")
             if sql_query:
                 sql_result = self._execute_sql(sql_query)
                 if sql_result:
                     logger.info("Text2SQL 검색 성공")
                     result = {"success": True, "candidates": sql_result, "method": "text2sql", "sql_query": sql_query}
-        
+
         if not result:
             logger.info("Text2SQL 실패 또는 미사용, RAG 검색으로 전환")
             rag_result = self._try_rag_search(query, slots)
             if rag_result:
                 logger.info("RAG 검색 성공")
                 result = {"success": True, "candidates": rag_result, "method": "rag"}
-        
+
         # 2차 LLM 필터링 수행
         if result and result["success"] and result.get("candidates"):
             logger.info(f"LLM 필터링 전 후보 개수: {len(result['candidates'])}")
-            filtered_candidates = _filter_products_with_llm(result["candidates"], query, openai_client)
+            # 이를 통해 필터링 함수가 'rewrite'와 'keywords' 정보에 접근할 수 있습니다.
+            filtered_candidates = _filter_products_with_llm(result["candidates"], state, openai_client)
             logger.info(f"LLM 필터링 후 후보 개수: {len(filtered_candidates)}")
-            
             # 필터링된 결과로 업데이트
             result["candidates"] = filtered_candidates
             result["filtered"] = True
             return result
-        
+
         logger.warning("Text2SQL 및 RAG 검색 모두 실패")
         return {"success": False, "candidates": [], "method": "failed", "error": "검색 결과가 없습니다."}
-
+    
     def _generate_sql(self, query: str, slots: Dict[str, Any]) -> Optional[str]:
         if not openai_client:
             logger.warning("OpenAI client 없음, SQL 생성 불가")
@@ -203,9 +195,8 @@ class ProductSearchEngine:
         
         logger.info(f"SQL 생성 시작 - Query: '{query}', Slots: {slots}")
         try:
-            system_prompt = self._build_system_prompt()
+            system_prompt = self._build_system_prompt(query,slots)
             user_prompt = self._build_user_prompt(query, slots)
-            
             response = openai_client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
@@ -217,21 +208,67 @@ class ProductSearchEngine:
             )
             
             sql_response = response.choices[0].message.content.strip()
+            logger.debug(f"LLM SQL 응답: {sql_response}")
             sql_query = self._extract_sql_from_response(sql_response)
             logger.info(f"LLM 응답에서 추출된 SQL: {sql_query}")
-            return sql_query
+            if sql_query and self._validate_sql(sql_query):
+                logger.info(f"SQL 생성 성공: {sql_query}")
+                return sql_query
+            else:
+                logger.warning("SQL 검증 실패 또는 빈 쿼리")
+                return None
                 
         except Exception as e:
             logger.error(f"SQL 생성 중 오류 발생: {e}")
             return None
     
-    def _build_system_prompt(self) -> str:
-        # ## 변경된 부분: LLM 프롬프트의 스키마와 예시 쿼리를 새 DB 구조에 맞게 전면 수정
+    def _build_system_prompt(self, query: str, slots: Dict[str, Any]) -> str:
         return f"""당신은 신선식품 쇼핑몰의 SQL 전문가입니다. 
-사용자의 자연어 쿼리를 정확한 MySQL SQL로 변환하세요.
+사용자의 자연어 쿼리와 slots을 바탕으로 정확한 MySQL SQL로 변환하세요.
+## 기본 원칙
+- `slots` 딕셔너리에 있는 각 키-값 쌍을 `AND` 조건으로 결합하여 `WHERE` 절을 구성합니다.
+- `slots`가 비어있으면 `WHERE` 절을 추가하지 않습니다.
+- `product_tbl`은 `p`, `stock_tbl`은 `s`, `category_tbl`은 `c`라는 별칭(alias)을 사용합니다.
+- `slots` 안의 키값 중 product, category, item, price_cap, origin, organic이 있으면 전부 where 절에 반영되어야 합니다.
+
+---
+## 슬롯별 변환 규칙
+-`product` 슬롯:
+  - **설명**: 상품명을 지정합니다. (예: "사과", "교자")
+  - **SQL 변환**: `product_tbl`의 `product` 컬럼을 `LIKE` 검색합니다. 사용자가 "사과"를 검색하면 "유기농 사과"도 찾을 수 있어야 하므로, 완전 일치(`=`)가 아닌 `LIKE '%키워드%'`를 사용합니다.
+  - **예시**: `slots: {{"product": "사과"}}` → `... WHERE p.product LIKE '%사과%'`
+
+- `category` 슬롯:
+  - **설명**: 상품의 대분류를 지정합니다. (예: "과일", "채소")
+  - **SQL 변환**: `category_tbl`과 `JOIN`이 필요합니다. 제공된 **# 카테고리 매핑**을 사용하여 슬롯의 문자열 값을 숫자 `category_id`로 변환해야 합니다.
+  - **예시**: `slots: {{"category": "과일"}}` → `... WHERE c.category_id = 1`
+
+- `item` 슬롯:
+  - **설명**: 상품의 구체적인 품목을 지정합니다. (예: "사과", "당근")
+  - **SQL 변환**: `product_tbl`의 `item` 컬럼을 `LIKE` 검색합니다. 사용자가 "사과"를 검색하면 "유기농 사과"도 찾을 수 있어야 하므로, 완전 일치(`=`)가 아닌 `LIKE '%키워드%'`를 사용합니다.
+  - **예시**: `slots: {{"item": "사과"}}` → `... WHERE p.item LIKE '%사과%'`
+
+- `price_cap` 슬롯:
+  - **설명**: 사용자가 원하는 최대 가격을 나타냅니다. 이 값 이하의 상품을 찾아야 합니다.
+  - **SQL 변환**: `product_tbl`의 `unit_price` 컬럼을 `CAST`를 사용하여 숫자형(`UNSIGNED`)으로 변환한 후, `<=` 연산자로 비교합니다.
+  - **예시**: `slots: {{"price_cap": 10000}}` → `... WHERE CAST(p.unit_price AS UNSIGNED) <= 10000`
+
+- `origin` 슬롯:
+  - **설명**: 상품의 원산지를 지정합니다.
+  - **SQL 변환**: `product_tbl`의 `origin` 컬럼과 정확히 일치(`=`)하는 항목을 찾습니다.
+  - **예시**: `slots: {{"origin": "국내산"}}` → `... WHERE p.origin = '국내산'`
+
+- `organic` 슬롯:
+  - **설명**: 유기농 상품 여부를 나타냅니다.
+  - **SQL 변환**: 슬롯 값이 `true`일 경우에만, `product_tbl`의 `organic` 컬럼이 'Y'인 조건을 추가합니다. 슬롯이 없거나 `false`이면 이 조건은 추가하지 않습니다.
+  - **예시**: `slots: {{"organic": true}}` → `... WHERE p.organic = 'Y'`
 
 # 데이터베이스 스키마:
 {self.db_schema}
+# 사용자 쿼리:
+{query}
+# 추출된 슬롯:
+{slots}
 
 # 카테고리 매핑:
 1: 과일, 2: 채소, 3: 곡물/견과류, 4: 육류/수산, 5: 유제품, 6: 냉동식품, 7: 조미료/소스, 8: 음료, 9: 베이커리, 10: 기타
@@ -308,13 +345,10 @@ SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN s
 7. 응답 형식: `SQL: [쿼리문]` 으로만 답하세요.
 8. 인기 상품 문의는 `product_tbl`의 `cart_add_count`를 기준으로 `DESC` 정렬하세요.
 9. 개인화 질문(알러지, 비건 등)이 오면 `user_detail_tbl`을 참조하여 `NOT LIKE` 또는 `NOT IN`으로 조건을 제외하세요.
-10. 여러 조건이 동시에 주어지면 `AND`로 모두 연결하세요.
+10. 여러 조건이 동시에 주어지면 product나 item은 OR, 나머지 조건은 AND로 결합하세요.
 11. 사용자 정보는 `userinfo_tbl`, `user_detail_tbl`에 있으며, `user_id`로 JOIN 가능합니다.
 12. 사용자의 키워드가 명확한 상품이나 카테고리와 일치하지 않을 경우, **단어의 의미를 추론하여 가장 관련성 높은 카테고리를 검색**하세요. (예: '해산물' -> '수산' -> `category_id=4`, '아침식사' -> '베이커리', '유제품' -> `category_id IN (5, 9)`)
-13. 사용자 쿼리 키워드와 함께 `category`, `organic` 같은 `slots` 정보가 주어지면, **쿼리 키워드와 `slots` 조건을 `OR`로 연결하여 검색을 확장**하세요. 이는 사용자가 특정 상품을 찾다가 관련 카테고리의 다른 상품들도 함께 보고 싶어하는 의도를 반영하기 위함입니다.
 """
-    
-
     def _build_user_prompt(self, query: str, slots: Dict[str, Any]) -> str:
         prompt_parts = [f"사용자 쿼리: \"{query}\""]
         if slots:
@@ -322,6 +356,8 @@ SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN s
             if slots.get('category'): prompt_parts.append(f"- 카테고리: {slots['category']}")
             if slots.get('price_cap'): prompt_parts.append(f"- 최대 가격: {slots['price_cap']}원")
             if slots.get('organic'): prompt_parts.append("- 유기농 선호")
+            if slots.get('origin'): prompt_parts.append(f"- 원산지: {slots['origin']}")
+            if slots.get('item'): prompt_parts.append(f"- 품목: {slots['item']}")
         prompt_parts.append("\n위 정보를 바탕으로 SQL을 생성해주세요.")
         prompt_parts.append("사고 과정을 먼저 설명한 후, SQL을 제공하세요.")
         return "\n".join(prompt_parts)
@@ -353,24 +389,23 @@ SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN s
         if match: 
             sql = match.group(1).strip().rstrip(';')
             return ' '.join(sql.split())
-
         return None
     
-    # def _validate_sql(self, sql: str) -> bool:
-    #     sanitized_sql = re.sub(r'\s+', ' ', sql).strip()
-        
-    #     # 정규화된 SQL을 대문자로 변경하여 검증을 수행합니다.
-    #     sql_upper = sanitized_sql.upper()
-    #     if not sql_upper.startswith('SELECT'): return False
-    #     dangerous_keywords = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER', 'CREATE']
-    #     if any(keyword in sql_upper for keyword in dangerous_keywords):
-    #         logger.warning(f"위험한 SQL 키워드 감지")
-    #         return False
-    #     # 이제 이 검증이 정상적으로 동작합니다.
-    #     if 'product_tbl' not in sql_upper:
-    #         logger.warning("product_tbl이 SQL에 포함되지 않음")
-    #         return False
-    #     return True
+    def _validate_sql(self, sql: str) -> bool:
+        sanitized_sql = re.sub(r'\s+', ' ', sql).strip()
+        # 정규화된 SQL을 대문자로 변경하여 검증을 수행합니다.
+        sql_upper = sanitized_sql.upper()
+        if not sql_upper.startswith('SELECT'): return False
+        dangerous_keywords = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER', 'CREATE']
+        if any(keyword in sql_upper for keyword in dangerous_keywords):
+            logger.info('sql_upper:', sql_upper)
+            logger.warning(f"위험한 SQL 키워드 감지")
+            return False
+        # 이제 이 검증이 정상적으로 동작합니다.
+        if 'PRODUCT_TBL' not in sql_upper:
+            logger.warning("product_tbl이 SQL에 포함되지 않음")
+            return False
+        return True
 
     def _execute_sql(self, sql: str) -> List[Dict[str, Any]]:
         conn = get_db_connection()
@@ -438,6 +473,8 @@ SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN s
         if product.get('stock', 0) <= 0: return False
         if slots.get('organic') and not product.get('organic', False): return False
         if slots.get('category') and slots['category'] != product.get('category_text', ''): return False
+        if slots.get('origin') and slots['origin'] != product.get('origin', ''): return False
+        if slots.get('item') and slots['item'] not in product.get('name', '') and slots['item'] not in product.get('item', ''): return False
         return True
     
     def _format_candidates(self, candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -455,82 +492,12 @@ def get_search_engine() -> ProductSearchEngine:
     if _search_engine is None: _search_engine = ProductSearchEngine()
     return _search_engine
 
-def get_popular_products(state: ChatState) -> Dict[str, Any]:
-    logger.info("=== Popular Products Recommendation Started ===")
-    try:
-        popular_data = _get_popular_products_from_db(state.query)
-        if popular_data["success"]:
-            return {"search": {**popular_data, "total_results": len(popular_data.get("candidates", []))}}
-        else:
-            return {"search": {"candidates": [], "method": "failed", "error": popular_data.get("error"), "total_results": 0}}
-    except Exception as e:
-        logger.error(f"Popular products recommendation failed: {e}", exc_info=True)
-        return {"search": {"candidates": [], "method": "error", "error": str(e), "total_results": 0}}
-
-def _get_popular_products_from_db(query: str) -> Dict[str, Any]:
-    conn = get_db_connection()
-    if not conn: return {"success": False, "error": "데이터베이스 연결 실패"}
-    try:
-        with conn.cursor(dictionary=True) as cursor:
-            # ## 변경된 부분: item_tbl JOIN 제거, p.organic 직접 참조
-            sql = """
-                SELECT 
-                    p.product as name, p.unit_price as price, p.origin, p.organic,
-                    s.stock, p.cart_add_count, c.category_id
-                FROM product_tbl p
-                LEFT JOIN stock_tbl s ON p.product = s.product
-                LEFT JOIN category_tbl c ON p.item = c.item
-                WHERE s.stock > 0 ORDER BY p.cart_add_count DESC LIMIT 10
-            """
-            cursor.execute(sql)
-            products = cursor.fetchall()
-            if not products: return {"success": False, "error": "인기상품이 없습니다"}
-            
-            processed_products = [_format_product_from_db(p) for p in products]
-            
-            formatted_candidates = [{
-                'sku': p.get('name', ''), 'name': p.get('name', ''),
-                'price': p.get('price', 0.0), 'stock': p.get('stock', 0),
-                'score': min(p.get('cart_add_count', 0) / 100.0, 1.0),
-                'origin': p.get('origin', ''), 'category': p.get('category_text', ''),
-                'cart_add_count': p.get('cart_add_count', 0)
-            } for p in processed_products]
-            
-            message = _generate_popular_products_message(query, formatted_candidates)
-            return {"success": True, "candidates": formatted_candidates, "method": "popular_products", "message": message}
-    except Error as e:
-        logger.error(f"인기상품 조회 실패: {e}")
-        return {"success": False, "error": str(e)}
-    finally:
-        if conn and conn.is_connected(): conn.close()
-
-def _generate_popular_products_message(query: str, products: List[Dict[str, Any]]) -> str:
-    if not openai_client or not products:
-        return f"장바구니 등록 횟수가 많은 상위 {len(products)}개 인기상품을 추천드립니다."
-    try:
-        summary = ', '.join([f"{p['name']}({p['category']})" for p in products[:3]])
-        system_prompt = f"신선식품 쇼핑몰 추천 전문가로서 친근한 1-2문장 추천 메시지를 작성하세요.\n인기상품: {summary}\n원칙: 간결하고 친근하게, 장바구니 등록 횟수 강조"
-        user_prompt = f'"{query}" 사용자에게 인기상품 추천 메시지'
-        response = openai_client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-            temperature=0.3, max_tokens=80, timeout=5
-        )
-        return response.choices[0].message.content.strip()
-    except Exception as e:
-        logger.error(f"인기상품 메시지 생성 실패: {e}")
-        top_category = products[0].get('category', '') if products else ''
-        return f"고객들이 가장 많이 찾는{' ' + top_category if top_category else ''} 인기상품 {len(products)}개를 준비했어요!"
-
 def product_search_rag_text2sql(state: ChatState) -> Dict[str, Any]:
     logger.info("=== Product Search Node Started ===")
     try:
         search_engine = get_search_engine()
-        query = state.rewrite.get('text') or state.query
-        slots = state.slots or {}
         
-        # Text2SQL 또는 RAG를 통해 검색 수행 (LLM 필터링 포함)
-        result = search_engine.search_products(query, slots)
+        result = search_engine.search_products(state)
         
         if result["success"] and result.get("candidates"):
             search_result = {
@@ -549,10 +516,13 @@ def product_search_rag_text2sql(state: ChatState) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Product search failed with error: {e}", exc_info=True)
         return {"search": {"candidates": [], "method": "error", "error": str(e), "total_results": 0}}
+    except Exception as e:
+        logger.error(f"Product search failed with error: {e}", exc_info=True)
+        return {"search": {"candidates": [], "method": "error", "error": str(e), "total_results": 0}}
     
 def _filter_products_with_llm(
     products: List[Dict[str, Any]],
-    query: str,
+    state:ChatState,
     llm_client: Optional[openai.OpenAI]
 ) -> List[Dict[str, Any]]:
     """
@@ -562,19 +532,27 @@ def _filter_products_with_llm(
     # LLM 클라이언트가 없거나, 필터링할 상품이 1개 이하면 필터링을 건너뜁니다.
     if not llm_client or not products or len(products) <= 1:
         return products
-
-    # LLM에 전달할 간단한 상품 정보 목록 생성 (이름과 카테고리만)
-    candidate_info = [
-        {"name": p.get("name"), "category": p.get("category")}
+    candidate_info_full = [
+        {
+            "name": p.get("name"),
+            "price": p.get("price"),
+            "origin": p.get("origin"),
+            "organic": p.get("organic"), 
+            "category": p.get("category_text")
+        }
+        # get() 메서드의 두 번째 인자로 기본값을 제공하여 키가 없는 경우에도 오류가 발생하지 않도록 합니다.
         for p in products
     ]
 
-    logger.info(f"LLM 정밀 필터링 시작. Query: '{query}', Candidates: {[p['name'] for p in products]}")
-
+    # state에서 재작성된 keywords를 가져옵니다. 없으면 빈 리스트를 사용합니다.
+    keywords = state.rewrite.get("keywords", [])
+    # 로그에 원본 쿼리 대신 정제된 키워드를 기록합니다.
+    logger.info(f"LLM 정밀 필터링 시작. Keywords: '{keywords}', Candidates: {[p['name'] for p in products]}")
     system_prompt = """
 당신은 사용자의 쇼핑 쿼리를 다차원적으로 분석하여, 주어진 상품 목록에서 사용자의 실제 의도와 일치하는 상품만을 정확하게 필터링하는 AI 상품 필터링 전문가입니다.
 당신의 임무는 단순한 키워드 매칭을 넘어, 쿼리에 담긴 문맥, 속성, 카테고리까지 파악하여 가장 적합한 상품 목록을 제공하는 것입니다.
 필터링 사고 프로세스 (Chain of Thought)
+
 1단계: 쿼리 의도 구조화 (Intent Structuring)
 사용자의 쿼리를 분석하여 핵심 구성요소로 분해합니다.
 A. 핵심 개체 (Core Entity): 사용자가 구매하려는 상품의 본질.
@@ -596,12 +574,8 @@ C. 검색 유형 판단 (Search Type Identification):
 
 2단계: 키워드 분석 및 확장 (Keyword Analysis & Expansion)
 구조화된 의도를 기반으로 검색에 사용할 키워드를 정교화합니다.
-A. 수식어 처리: 형용사, 관형어 등은 핵심 개체와 결합된 중요한 필터링 조건으로 간주합니다.
 
-쿼리: "신선한 수박" -> 신선한과 수박 두 조건을 모두 만족하는 상품을 우선적으로 고려합니다.
-쿼리: "유기농 사과" -> 유기농 인증 또는 설명이 있고, 사과인 상품을 찾습니다.
-
-B. 의미론적 카테고리 분류 (Semantic Category Classification): 
+A. 의미론적 카테고리 분류 (Semantic Category Classification): 
 '카테고리 검색'으로 판단된 경우, 사용자의 쿼리 키워드가 가진 실제 의미 범위를 정확히 파악하여 필터링합니다.
 
 원칙 1: 생물학적/물리적 특성 기반 분류
@@ -685,107 +659,21 @@ relevant_products 리스트 외에 다른 설명, 주석, 예시는 절대 포�
 새우깡
 해물 파스타 소스
 라면사리
-
-출력:
-{
-"relevant_products": [
-"해물탕 라면"
-]
-}
-예시 3: 카테고리 검색
-사용자 쿼리: "채소 좀 골라줘"
-상품 목록:
-
-유기농 양파 (1kg)
-닭가슴살 (300g)
-신선한 당근 (500g)
-사과 (3개입)
-다진 마늘 (100g)
-우유 (1L)
-
-출력:
-{
-"relevant_products": [
-"유기농 양파 (1kg)",
-"신선한 당근 (500g)",
-"다진 마늘 (100g)"
-]
-}
-예시 4: 부정 제약 조건
-사용자 쿼리: "육류인데 돼지고기는 빼고"
-상품 목록:
-
-한우 등심 (200g)
-돼지 삼겹살 (300g)
-닭가슴살 (500g)
-양념 갈비 (400g)
-돼지고기 목살 (350g)
-오리고기 훈제 (250g)
-
-출력:
-{
-"relevant_products": [
-"한우 등심 (200g)",
-"닭가슴살 (500g)",
-"양념 갈비 (400g)",
-"오리고기 훈제 (250g)"
-]
-}
-예시 5: 용도/상황 기반 필터링
-사용자 쿼리: "샐러드에 넣을 과일"
-상품 목록:
-
-아보카도 (2개입)
-수박 (통) 5kg
-체리 토마토 (300g)
-사과 주스 (1L)
-블루베리 (125g)
-바나나 (5개입)
-
-출력:
-{
-"relevant_products": [
-"아보카도 (2개입)",
-"체리 토마토 (300g)",
-"블루베리 (125g)"
-]
-}
-예시 6: 수식형 합성어
-사용자 쿼리: "한국우유"
-상품 목록:
-
-서울우유 저지방 (1L)
-덴마크 치즈 (200g)
-국산 우유 (900ml)
-외국산 버터 (250g)
-매일유업 우유 (1L)
-이탈리아 요거트 (150g)
-
-출력:
-{
-"relevant_products": [
-"서울우유 저지방 (1L)",
-"국산 우유 (900ml)",
-"매일유업 우유 (1L)"
-]
 }"""
 
     # LLM에게 전달할 사용자 프롬프트 생성 (상품 목록 전체 전달)
     user_prompt = f"""
 # 사용자 쿼리
-"{query}"
-
+"{' '.join(keywords)}"
 # 1차 검색된 상품 목록
-{json.dumps(candidate_info, ensure_ascii=False, indent=2)}
+{json.dumps(candidate_info_full, ensure_ascii=False, indent=2)}
 
 # 지시
 위 쿼리의 의도에 **정확히 부합하는** 상품들의 `name`을 리스트로 추출하여 아래 JSON 형식으로만 응답해주세요.
-
 {{
-  "relevant_products": ["상품명1", "상품명2", ...]
+"relevant_products": ["상품명1", "상품명2", ...]
 }}
 """
-
     try:
         response = llm_client.chat.completions.create(
             model="gpt-4o-mini",
@@ -800,22 +688,14 @@ relevant_products 리스트 외에 다른 설명, 주석, 예시는 절대 포�
         response_data = json.loads(response.choices[0].message.content)
         relevant_names = response_data.get("relevant_products", [])
         
-        # relevant_names가 리스트 형태인지 확인
         if not isinstance(relevant_names, list):
             logger.warning("LLM이 유효한 상품 이름 리스트를 반환하지 않았습니다. 필터링을 건너뜁니다.")
             return products
-
         logger.info(f"LLM 필터링 판단 결과 (유효 상품): {relevant_names}")
-
-        # LLM이 선택한 이름들을 set으로 변환하여 검색 효율성 증대
         relevant_names_set = set(relevant_names)
-        
-        # 원본 상품 목록에서 LLM이 선택한 상품들만 필터링
         filtered_products = [
             p for p in products if p.get("name") in relevant_names_set
         ]
-
-        # 필터링 후 결과가 없으면, 안전장치로 원본 반환
         if not filtered_products:
             logger.warning("LLM 정밀 필터링 후 모든 상품이 제외되었습니다. 원본 결과를 반환합니다.")
             return products

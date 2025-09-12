@@ -1,13 +1,10 @@
-# workflow.py (LangGraph StateGraph 버전)
-
 import logging
 from langgraph.graph import StateGraph, END
 from graph_interfaces import ChatState
 
-# 각 모듈에서 필요한 '함수'를 직접 import 합니다. (기존과 동일)
 from nodes.router_clarify import router_route, clarify
 from nodes.query_enhancement import enhance_query
-from nodes.product_search import product_search_rag_text2sql, get_popular_products
+from nodes.product_search import product_search_rag_text2sql
 from nodes.recipe_search import recipe_search
 from nodes.cart_order import cart_manage, view_cart, remove_from_cart, checkout
 from nodes.cs_impl import cs_intake, _classify_cs_type
@@ -20,7 +17,6 @@ def search_hub(state: ChatState) -> ChatState:
     """검색 관련 요청을 처리하는 허브 함수 - conditional_edges가 분기 처리"""
     target = state.route.get("target")
     logger.info(f"Search hub: Processing '{target}'")
-    
     # 상태 설정만 하고 conditional_edges가 다음 노드를 결정
     return state
 
@@ -29,7 +25,7 @@ def cs_hub(state: ChatState) -> ChatState:
     target = state.route.get("target")
     logger.info(f"CS hub: Processing '{target}'")
     
-    # handoff는 직접 처리 (이미 분류됨)
+    # handoff는 직접 처리
     if target == 'handoff':
         state.cs["classification"] = "handoff"
         return state
@@ -47,7 +43,6 @@ def cs_hub(state: ChatState) -> ChatState:
     return state
 
 # ===== 조건부 함수들 (StateGraph용) =====
-
 def determine_search_target(state: ChatState) -> str:
     """search_hub에서 다음 노드를 결정하는 조건부 함수 (if문 없이 딕셔너리 매핑)"""
     target = state.route.get("target")
@@ -61,7 +56,6 @@ def determine_search_target(state: ChatState) -> str:
         'recipe_search': 'enhance_query', 
         'cart_view': 'enhance_query',
         'checkout': 'enhance_query',
-        'popular_products': 'enhance_query'
     }
     
     next_node = target_mapping.get(target, 'enhance_query')  # 기본값은 enhance_query
@@ -103,7 +97,6 @@ def determine_after_enhance_query(state: ChatState) -> str:
         'recipe_search': 'recipe_search',
         'cart_view': 'view_cart',
         'checkout': 'view_cart',       # checkout은 먼저 view_cart
-        'popular_products': 'get_popular_products'
     }
     
     next_node = target_mapping.get(target, 'product_search')
@@ -135,7 +128,6 @@ def determine_after_view_cart(state: ChatState) -> str:
     logger.info(f"determine_after_view_cart: route='{target}', has_items={has_items} -> next='{next_node}'")
     return next_node
 
-
 def determine_after_faq_policy_rag(state: ChatState) -> str:
     """faq_policy_rag 후 다음 노드를 결정하는 조건부 함수"""
     should_handoff = state.cs.get("answer", {}).get("should_handoff", False)
@@ -144,7 +136,6 @@ def determine_after_faq_policy_rag(state: ChatState) -> str:
     return next_node
 
 # ===== 라우팅 결정 함수들 (StateGraph용) =====
-
 def determine_route(state: ChatState) -> str:
     """라우터의 결과에 따라 다음 노드를 결정하는 함수"""
     target = state.route.get("target")
@@ -152,7 +143,7 @@ def determine_route(state: ChatState) -> str:
     
     if target == 'clarify':
         return 'clarify'
-    elif target in ['product_search', 'recipe_search', 'cart_add', 'cart_remove', 'cart_view', 'checkout', 'popular_products']:
+    elif target in ['product_search', 'recipe_search', 'cart_add', 'cart_remove', 'cart_view', 'checkout']:
         return 'search_hub'
     elif target in ['cs', 'handoff']:
         return 'cs_hub'
@@ -162,7 +153,6 @@ def determine_route(state: ChatState) -> str:
         return 'clarify'
 
 # ===== StateGraph 생성 =====
-
 def create_workflow_graph():
     """LangGraph StateGraph를 사용한 워크플로우 생성"""
     
@@ -183,7 +173,6 @@ def create_workflow_graph():
     workflow.add_node("view_cart", view_cart)
     workflow.add_node("remove_from_cart", remove_from_cart)
     workflow.add_node("checkout", checkout)
-    workflow.add_node("get_popular_products", get_popular_products)
     workflow.add_node("cs_intake", cs_intake)
     workflow.add_node("faq_policy_rag", faq_policy_rag)
     workflow.add_node("handoff", handoff)
@@ -232,8 +221,7 @@ def create_workflow_graph():
             "recipe_search": "recipe_search", 
             "view_cart": "view_cart",
             "remove_from_cart": "remove_from_cart",
-            "checkout": "checkout",                # ✅ 추가: checkout 분기
-            "get_popular_products": "get_popular_products"
+            "checkout": "checkout",               
         }
     )
     
@@ -273,8 +261,7 @@ def create_workflow_graph():
     workflow.add_edge("cart_manage", END)
     workflow.add_edge("remove_from_cart", END)
     workflow.add_edge("checkout", END) 
-    workflow.add_edge("get_popular_products", END)
-    workflow.add_edge("cs_intake", END)  # cs_intake는 독립적으로 종료
+    workflow.add_edge("cs_intake", END) 
     workflow.add_edge("handoff", END)
     
     # 컴파일하여 실행 가능한 그래프 생성
@@ -316,12 +303,11 @@ def run_workflow_fallback(state: ChatState) -> ChatState:
         return state
     
     # Search 관련 의도들을 search_hub로 전달
-    elif target in ['product_search', 'recipe_search', 'cart_add', 'cart_remove', 'cart_view', 'checkout', 'popular_products']:
+    elif target in ['product_search', 'recipe_search', 'cart_add', 'cart_remove', 'cart_view', 'checkout']:
         logger.info(f"Fallback routing to search_hub for target: {target}")
         print("search_hub:", search_hub(state))
         return search_hub(state)
         
-    
     # CS 관련 의도들을 cs_hub로 전달  
     elif target in ['cs', 'handoff']:
         logger.info(f"Fallback routing to cs_hub for target: {target}")

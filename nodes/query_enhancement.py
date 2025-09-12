@@ -6,15 +6,13 @@ B팀의 책임:
 - 슬롯 추출 (수량, 카테고리, 가격, 식이제한 등)
 - 키워드 생성 및 확장
 """
-
 import logging
 import os
 import json
 from typing import Dict, Any, Optional
-
 import sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from graph_interfaces import ChatState
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 logger = logging.getLogger("B_QUERY_ENHANCEMENT")
 
@@ -61,7 +59,6 @@ def enhance_query(state: ChatState) -> Dict[str, Any]:
             "user_id": state.user_id,
             "error": str(e)
         })
-        
         # 실패 시 원문 유지
         return {
             "rewrite": {
@@ -75,85 +72,90 @@ def enhance_query(state: ChatState) -> Dict[str, Any]:
 def _llm_enhance_all(query: str) -> Optional[Dict[str, Any]]:
     """전체 쿼리 보강 (재작성 + 슬롯 + 키워드)"""
     system_prompt = """당신은 신선식품 쇼핑몰의 전문 쿼리 분석가입니다.
-아래 규칙을 정확히 따라 사용자 입력을 분석하세요.
+사용자의 입력을 분석하여, 이어지는 다양한 작업(상품 검색, 레시피 검색, 장바구니 관리 등)에 필요한 정보를 구조화된 JSON 형식으로 추출해야 합니다.
 
-**1. 카테고리 분류 (정확히 아래 10개 중에서만 선택)**:
-- **과일**: 사과, 배, 바나나, 딸기, 포도, 멜론, 한라봉, 체리, 키위 등
-- **채소**: 상추, 시금치, 브로콜리, 당근, 양파, 마늘, 대파, 토마토, 오이, 무, 콩나물 등
-- **곡물/견과류**: 쌀, 현미, 귀리, 퀴노아, 아몬드, 호두 등
-- **육류/수산**: 소고기, 돼지고기, 닭고기, 연어, 새우, 오징어, 명태 등
-- **유제품**: 우유, 요거트, 치즈, 버터, 달걀, 두유 등
-- **냉동식품**: 냉동만두, 냉동피자, 냉동베리, 냉동브로콜리 등
-- **조미료/소스**: 간장, 된장, 고추장, 참기름, 올리브오일 등
-- **음료**: 생수, 주스, 차 등
-- **베이커리**: 식빵, 베이글 등
-- **기타**
+# --- 최종 목표 ---
+사용자 쿼리 하나를 분석하여, 아래 후속 작업들 중 하나를 수행하는 데 필요한 모든 정보를 완벽하게 추출해야 합니다.
+1.  **상품 검색**: 특정 조건(가격, 카테고리, 유기농 여부 등)에 맞는 상품을 찾습니다.
+2.  **레시피 검색**: 특정 요리명이나 재료로 만들 수 있는 레시피를 찾습니다.
+3.  **장바구니 관리**: 장바구니에 상품을 담거나, 특정 상품을 빼거나, 전체 목록을 보거나, 결제를 진행합니다.
+4.  **체크아웃**: 장바구니에 담긴 상품을 결제합니다.
 
-**2. 수량(quantity) 추출 규칙**:
-- "개", "팩", "봉지", "상자", "병", "통", "마리" 등 명시적 개수 단위만 인정
-- 중량(g, kg, L)은 상품 규격이므로 quantity가 아님
-- 예시: "사과 500g 3개" → quantity: 3, "우유 1L" → quantity: 1, "바나나 1kg" → quantity: 1
+## 상품 검색 (Product Search) 필수 규칙
+- **`item` 또는 `category` 슬롯 중 하나 이상은 반드시 추출되어야 합니다.** 사용자가 무엇을 찾는지 명확하지 않으면 검색을 수행할 수 없습니다.
+    - 예시: "유기농 만원 이하" (X - 무엇을 찾는지 불명확) -> "유기농 과일 만원 이하" (O - `category` 추출)
+- 상품의 고유 이름 (예: "비비고 왕교자", "신라면")이 언급되면 `item` 슬롯에 해당 값을 할당해야 합니다.
+- product_search일 경우, slots에 product, category는 필수적으로 들어가야 합니다(중요).
 
-**3. 가격(price_cap) 추출 규칙**:
-- "만원 이하" → 10000, "3천원대" → 3000, "5000원 미만" → 5000
-- "2-3만원" → 30000 (최대값 기준), "1만~2만원" → 20000
-- "저렴한", "싸게", "비싸게" → 추출하지 않음 (구체적 금액만)
+## 레시피 검색 (Recipe Search) 필수 규칙
+- **`dish_name` 또는 `ingredients` 슬롯 중 하나 이상은 반드시 추출되어야 합니다.** 어떤 요리에 대한 레시피인지 명확해야 합니다.
+- `ingredients` 리스트에는 최소 하나 이상의 재료가 포함되어야 합니다.
+    - 예시: "오늘 저녁 메뉴 추천해줘" (X - 요리명이나 재료 불명확) -> "소고기로 할 수 있는 요리 추천" (O - `ingredients` 추출)
 
-**4. 브랜드 인식 (정확히 이런 형태만)**:
-- 풀무원, 오뚜기, 동원, 롯데, 농심, 샘표, 청정원, 대상, 매일, CJ, 서울우유, 남양, 빙그레
-- 브랜드명이 명시되지 않으면 추출 안 함
+## 장바구니 관리 (Cart Management) 필수 규칙
+- **상품 제거 (`remove`) 시, 제거할 대상인 `item` 슬롯이 반드시 추출되어야 합니다.**
+    - 예시: "장바구니에서 하나 빼줘" (X - 무엇을 뺄지 불명확) -> "장바구니에서 제주 한라봉 빼줘" (O - `item` 추출)
+- **목록 보기 (`view`) 또는 결제 (`checkout`)의 경우,** 특정 슬롯은 필요 없지만 `rewrite.text`에 "장바구니 보기" 또는 "결제 진행"과 같이 의도가 명확하게 표준화되어야 합니다.
 
-**5. 원산지 인식**:
-- 국내: 국산, 제주산, 경북산, 충남산, 전남산, 강원산
-- 해외: 미국산, 칠레산, 뉴질랜드산, 일본산, 중국산
-- "수입"만으로는 구체적 원산지 아님
+## 체크아웃 (Checkout) 필수 규칙
+- 체크아웃 의도가 명확할 경우, `rewrite.text`에 "결제 진행"과 같이 표준화되어야 합니다.
+    - 예시: "이대로 결제할래" -> "결제 진행"
 
-**6. 키워드 생성 (정확히 4-6개)**:
-- 상품명 한글: 원래 이름
-- 상품명 영문: apple, banana 등
-- 카테고리명: 과일, 채소 등
-- 속성: 유기농, 신선한, 냉동 등의 핵심 키워드를 꾸며주는 말 포함
-- 의도: 구매, 주문, 검색 등
-- 브랜드명: 풀무원, 오뚜기 등
+# --- 출력 JSON 구조 및 슬롯 정의 ---
+- **rewrite**: 사용자 의도를 명확하게 재작성한 객체.
+- `text`: 표준화된 쿼리 문자열.
+- `keywords`: 검색 및 분석에 사용될 키워드 목록.
+- `confidence`: 분석 신뢰도 (0.0 ~ 1.0).
+- `changes`: 수행한 변경 내역.
+- **slots**: 추출된 정형 데이터 객체.
+- `product` (String): 상품명 (예: "사과", "교자").
+- `category` (String): [과일, 채소, 곡물/견과류, 육류/수산, 유제품, 냉동식품, 조미료/소스, 음료, 베이커리, 기타] 중 하나.
+- `item` (String): 구체적인 상품 품목명 (예: "사과", "한우 등심").
+- `quantity` (Integer): 구매 또는 제거하려는 상품의 개수.
+- `price_cap` (Integer): 최대 가격 상한선.
+- `organic` (Boolean): 유기농 여부.
+- `origin` (String): 원산지 (예: "국내산", "미국산", "국산"->"국내산"으로 변경).
+- `ingredients` (List[String]): 레시피 검색에 사용할 재료 목록 (예: ["돼지고기", "김치"]).
 
-**7. 재작성(rewrite) 규칙**:
-- 조사 제거: "을/를/이/가/은/는" 삭제
-- 불용어 제거: "좀/살짝/하나/정도" 삭제
-- 의도 표준화: "사고 싶어" → "구매", "찾아줘" → "검색", "주문하고 싶어" → "주문"
-- 최종 길이: 15자 이내로 간결화
+# --- 핵심 규칙 ---
+1.  **카테고리 분류**: 제시된 10개 카테리 중 하나로 반드시 분류합니다.
+2.  **수량(quantity) 추출**: "개", "팩", "봉지" 등 명시적 단위만 인정하며, 기본값은 1입니다.
+3.  **가격(price_cap) 추출**: "만원 이하" -> 10000, "2-3만원" -> 30000 (최대값) 처럼 숫자만 추출합니다.
+4.  **원산지(origin) 인식**: 'XX산', '국내산', '수입산' 키워드가 있을 때만 추출하며 국가명만 있을 시 뒤에 '산'을 붙입니다. ('국산' -> '국내산'으로 대신 표기)
+5.  **키워드(keywords) 생성**: 상품명, 카테고리, 속성(유기농, 맛있는), 의도(구매, 검색, 레시피), 브랜드, 원산지 등을 모두 포함합니다.
+6.  **재작성(rewrite.text) 규칙**: 불필요한 조사, 불용어("좀")를 제거하고, 의도를 표준화합니다. (예: "찾아줘" -> "검색", "끓이는 법" -> "레시피", "빼줘" -> "제거", "보여줘" -> "보기")
+7.  **물품명(product) 추출**: 기본적인 키워드이며 product_search일 경우, slots에 product는 필수적으로 들어가야 합니다.
 
-**8. 신뢰도(confidence) 기준**:
-- 0.9: 모든 정보 명확, 표준 표현
-- 0.8: 대부분 정보 추출, 약간의 추론
-- 0.7: 기본 정보 추출, 일부 불확실
-- 0.5: 최소 정보만 추출
-- 0.3: 이해 어려움
+# --- 기능별 예시 ---
 
-**9. changes 기록**:
-- "조사 '을' 제거", "'사고싶어' → '구매'", "불용어 '좀' 제거" 등 구체적으로 기록
+## 예시 1: 상품 검색
+- 입력: "유기농 수박 1kg 3봉지 만원 이하로 구매"
+- 출력: {{"rewrite": {{"text": "유기농 수박 1kg 3봉지 구매", "keywords": ["수박", "채소", "유기농", "구매"], "confidence": 0.9, "changes": ["'만원 이하로' → 가격 슬롯 이동"]}}, "slots": {{"product":"교자", "quantity": 3, "category": "채소", "item": "수박", "organic": true, "price_cap": 10000, "category": "과일"}}}}
 
-**구체적 예시들**:
+- 입력: "국내산 귤 5000원대로 주문"
+- 출력: {{"rewrite": {{"text": "미국산 고등어 주문", "keywords": ["고등어", "육류/수산", "미국산", "주문"], "confidence": 0.8, "changes": ["'5000원대로' → 가격 슬롯 이동", '미국산' 원산지 추출"]}}, "slots": {{"product":"귤","quantity": 1, "category": "육류/수산", "item": "귤", "origin": "미국산", "price_cap": 5000}}}}
 
-예시1: "사과 2개 주문하고 싶어요"
-→ {{"rewrite": {{"text": "사과 2개 주문", "keywords": ["사과", "과일", "주문", "구매"], "confidence": 0.9, "changes": ["조사 제거", "'주문하고 싶어요' → '주문'"]}}, "slots": {{"quantity": 2, "category": "과일"}}}}
+- 입력: "맛있는 사과 찾아줘"
+- 출력: {{"rewrite": {{"text": "맛있는 사과 검색", "keywords": ["사과", "과일", "맛있는", "검색"], "confidence": 0.7, "changes": ["'찾아줘' → '검색'"]}}, "slots": {{"product":"사과", "quantity": 1, "category": "과일", "item": "사과"}}}}
 
-예시2: "유기농 당근 1kg 3봉지 만원 이하로 구매"  
-→ {{"rewrite": {{"text": "유기농 당근 1kg 3봉지 구매", "keywords": ["당근", "채소", "유기농", "구매"], "confidence": 0.9, "changes": ["'만원 이하로' → 가격 슬롯 이동"]}}, "slots": {{"quantity": 3, "category": "채소", "organic": true, "price_cap": 10000}}}}
+## 예시 2: 레시피 검색
+- 입력: "돼지고기랑 김치로 만들 수 있는 요리 알려줘"
+- 출력: {{"rewrite": {{"text": "돼지고기 김치 레시피 검색", "keywords": ["돼지고기", "김치", "레시피", "요리"], "confidence": 0.9, "changes": ["'만들 수 있는 요리 알려줘' → '레시피 검색'"]}}, "slots": {{"ingredients": ["돼지고기", "김치"]}}}}
 
-예시3: "풀무원 두부 좀 사고 싶어요"
-→ {{"rewrite": {{"text": "풀무원 두부 구매", "keywords": ["두부", "풀무원", "구매", "유제품"], "confidence": 0.8, "changes": ["불용어 '좀' 제거", "'사고 싶어요' → '구매'"]}}, "slots": {{"quantity": 1, "brand": "풀무원"}}}}
+- 입력: "간단한 닭가슴살 요리 레시피"
+- 출력: {{"rewrite": {{"text": "간단한 닭가슴살 요리 레시피", "keywords": ["닭가슴살", "레시피", "요리", "간단한"], "confidence": 0.9, "changes": []}}, "slots": {{"ingredients": ["닭가슴살"], "dish_name": "닭가슴살 요리"}}}}
 
-예시4: "제주 귤 5000원대로 주문"
-→ {{"rewrite": {{"text": "제주 귤 주문", "keywords": ["귤", "과일", "제주", "주문"], "confidence": 0.8, "changes": ["'5000원대로' → 가격 슬롯 이동"]}}, "slots": {{"quantity": 1, "category": "과일", "origin": "제주산", "price_cap": 5000}}}}
+## 예시 3: 장바구니 관리
+- 입력: "장바구니에서 우유 한 개 빼줘"
+- 출력: {{"rewrite": {{"text": "장바구니 우유 1개 제거", "keywords": ["장바구니", "우유", "제거"], "confidence": 0.9, "changes": ["'한 개' → quantity: 1", "'빼줘' → '제거'"]}}, "slots": {{"product":"우유", "item": "우유", "quantity": 1}}}}
 
-예시5: "뭔가 맛있는 과일"
-→ {{"rewrite": {{"text": "과일 검색", "keywords": ["과일", "맛있는", "검색", "신선"], "confidence": 0.4, "changes": ["'뭔가' 제거", "의도 명확화"]}}, "slots": {{"quantity": 1, "category": "과일"}}}}
+- 입력: "내 장바구니 좀 보여줄래?"
+- 출력: {{"rewrite": {{"text": "장바구니 보기", "keywords": ["장바구니", "보기", "조회"], "confidence": 0.9, "changes": ["'내', '좀' 불용어 제거", "'보여줄래?' → '보기'"]}}, "slots": {}}}}
 
-예시6: "연어 500g 2팩 3만원 미만"
-→ {{"rewrite": {{"text": "연어 500g 2팩 구매", "keywords": ["연어", "육류수산", "구매", "생선"], "confidence": 0.9, "changes": ["'3만원 미만' → 가격 슬롯 이동"]}}, "slots": {{"quantity": 2, "category": "육류수산", "price_cap": 30000}}}}
+- 입력: "이대로 결제할래"
+- 출력: {{"rewrite": {{"text": "결제 진행", "keywords": ["결제", "주문"], "confidence": 0.9, "changes": ["'이대로', '할래' 제거", "의도 표준화"]}}, "slots": {}}}}
 
-위 규칙을 정확히 따라 JSON 형식으로만 응답하세요."""
-
+위 규칙과 예시를 정확히 따라 JSON 형식으로만 응답하세요."""
     try:
         response = openai_client.chat.completions.create(
             model="gpt-4o-mini",
@@ -167,7 +169,6 @@ def _llm_enhance_all(query: str) -> Optional[Dict[str, Any]]:
         )
         
         result = json.loads(response.choices[0].message.content.strip())
-        
         # 데이터 정리
         if "rewrite" in result:
             rewrite = result["rewrite"]
@@ -178,15 +179,12 @@ def _llm_enhance_all(query: str) -> Optional[Dict[str, Any]]:
                 
         if "slots" not in result or not result["slots"]:
             result["slots"] = {"quantity": 1}
-            
         if "slots" in result:
             result["slots"] = {k: v for k, v in result["slots"].items() if v is not None}
-            # null 제거 후에도 슬롯이 비었다면 quantity 기본값 보장
             if not result["slots"]:
                 result["slots"] = {"quantity": 1}
-
         return result
-        
+    
     except Exception as e:
         logger.warning(f"LLM 단일 호출 실패: {e}")
         return None
