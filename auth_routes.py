@@ -301,18 +301,18 @@ async def login(user_login: UserLogin, response: Response, request: Request):
     """로그인"""
     try:
         result = auth_manager.authenticate_user(user_login.email, user_login.password)
-        # 세션/로그 기록 (비침투)
-        try:
-            ua = request.headers.get('user_agent', '')
-            ip = request.client.host if request and request.client else ''
-            exp = datetime.utcnow() + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)
-            db_audit.insert_user_session(user["user"]["user_id"], _safe_session_id(access_token), exp, ua, ip)
-        except Exception as e:
-            logger.warning(f"login audit 실패: {e}")
-            
+
         if result["success"]:
             user = result["user"]
             access_token = create_access_token(data={"sub": user["user_id"]})
+            # 세션/로그 기록 (비침투)
+            try:
+                ua = request.headers.get('user-agent', '')
+                ip = request.client.host if request and request.client else ''
+                exp = datetime.utcnow() + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)
+                db_audit.insert_user_session(user["user_id"], _safe_session_id(access_token), exp, ua, ip)
+            except Exception as e:
+                logger.warning(f"login audit 실패: {e}")
             
             # HTTP-Only 쿠키로도 토큰 설정 (보안 강화)
             response.set_cookie(
