@@ -303,7 +303,7 @@ async def login(user_login: UserLogin, response: Response, request: Request):
         result = auth_manager.authenticate_user(user_login.email, user_login.password)
         # 세션/로그 기록 (비침투)
         try:
-            ua = request.headers.get('user-agent', '')
+            ua = request.headers.get('user_agent', '')
             ip = request.client.host if request and request.client else ''
             exp = datetime.utcnow() + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)
             db_audit.insert_user_session(user["user"]["user_id"], _safe_session_id(access_token), exp, ua, ip)
