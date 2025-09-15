@@ -347,7 +347,7 @@ async def chat_api(request: Request):
 
         if not response_text and final_state.meta.get("order_message"):
             response_text = final_state.meta.get("order_message")
-        # if not response_text and final_state.search.get("candidates"):
+
         if not response_text and hasattr(final_state, 'search') and final_state.search:
             candidates = final_state.search.get("candidates", [])
             search_error = final_state.search.get("error")
@@ -358,18 +358,11 @@ async def chat_api(request: Request):
                 response_text = search_error
             else:
                 response_text = "해당 상품을 찾을 수 없습니다."
-            # response_text = f"{len(final_state.search['candidates'])}개의 상품을 찾았습니다."
+
         if not response_text and final_state.recipe.get("results"):
             response_text = f"{len(final_state.recipe['results'])}개의 레시피를 찾았습니다."
         if not response_text:
-            # response_text = "무엇을 도와드릴까요?"
-            # clarify 결과가 있으면 사용, 없으면 기본 메시지
-            clarify_questions = getattr(final_state, 'clarify', {}).get("questions", [])
-            print('===========clarify_question', clarify_questions)
-            if clarify_questions:
-                response_text = clarify_questions[0]  # 첫 번째 질문 사용
-            else:
-                response_text = "무엇을 도와드릴까요?"  # 폴백 메시지
+            response_text = "무엇을 도와드릴까요?"
 
         # 클라이언트로 보낼 페이로드
         cs_payload_out = getattr(final_state, 'cs', {}) or {}
