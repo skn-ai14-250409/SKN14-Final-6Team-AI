@@ -5,20 +5,42 @@ from mysql.connector import Error
 
 def faq_policy_rag(state) -> Dict[str, Any]:
     logger.info("FAQ RAG 검색 시작", extra={"user_id": getattr(state, 'user_id', None), "query": getattr(state, 'query', '')})
+    logger.info(f"OpenAI 클라이언트: {openai_client is not None}, Pinecone 인덱스: {pinecone_index is not None}")
     if not (openai_client and pinecone_index):
+        logger.info("RAG 조건 실패 - DB 폴백으로 이동")
         return _faq_db_fallback(state)
     try:
         embedding_response = openai_client.embeddings.create(model="text-embedding-3-small", input=state.query)
         query_embedding = embedding_response.data[0].embedding
         results = pinecone_index.query(vector=query_embedding, top_k=5, include_metadata=True,
                                        filter={"type": {"$in": ["faq", "terms"]}})
+        logger.info(f"Pinecone 검색 결과: {len(results.matches)}개 매치")
         if not results.matches:
+            logger.info("검색 결과 없음 - DB 폴백으로 이동")
             return _faq_db_fallback(state)
         docs, citations = [], []
-        for match in results.matches:
+        threshold = 0.4  # 유사도 임계값
+        for i, match in enumerate(results.matches):
             md = match.metadata or {}
-            docs.append(md.get("content", ""))
-            citations.append(f"{md.get('type','unknown')}:{md.get('title','')}")
+            score = match.score
+
+            # 임계값 이하 문서는 제외 (로그도 출력하지 않음)
+            if score < threshold:
+                continue
+
+            logger.info(f"검색 결과 {i+1}: 점수={score:.3f}, 카테고리={md.get('category','')}")
+
+            content = md.get("text", "")
+            docs.append(content)
+            citations.append(f"{md.get('type','unknown')}:{md.get('category','')}")
+            logger.info(f"내용: {content[:200]}...")  # 내용 일부 로깅
+
+        # 임계값을 넘는 문서가 없으면 DB 폴백
+        if not docs:
+            logger.info(f"임계값 {threshold} 이상인 문서가 없음 - DB 폴백으로 이동")
+            return _faq_db_fallback(state)
+
+        logger.info(f"최종적으로 {len(docs)}개 문서 사용")
         context_text = "\n\n".join(docs)
         rag_prompt = f"""
         다음은 고객 질문과 관련된 참고 문서입니다.
@@ -110,4 +132,3 @@ def _calculate_confidence(answer: Dict[str, Any], query: str) -> float:
         return 0.4
     else:
         return 0.1
-
