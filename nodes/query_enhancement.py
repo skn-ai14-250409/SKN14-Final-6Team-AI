@@ -126,17 +126,39 @@ def _llm_enhance_all(query: str) -> Optional[Dict[str, Any]]:
 6.  **재작성(rewrite.text) 규칙**: 불필요한 조사, 불용어("좀")를 제거하고, 의도를 표준화합니다. (예: "찾아줘" -> "검색", "끓이는 법" -> "레시피", "빼줘" -> "제거", "보여줘" -> "보기")
 7.  **물품명(product) 추출**: 기본적인 키워드이며 product_search일 경우, slots에 product는 필수적으로 들어가야 합니다.
 
+# --- product_tbl 컬럼 우선순위 규칙 ---
+**매우 중요**: product_tbl의 컬럼에 해당하는 내용이 사용자 입력에 포함되어 있을 경우, 다음 규칙을 무조건 따라야 합니다:
+
+8.  **product_tbl 컬럼 매핑**: 사용자 입력에서 product_tbl의 컬럼과 일치하는 상품 정보가 발견되면 반드시 keywords와 slots에 추가해야 합니다.
+    - **우선순위**: product 컬럼 → item 컬럼 → category 컬럼 순으로 확인
+    - **셋 다 있는 경우가 가장 좋지만, 셋 중 하나는 반드시 있어야 함**
+    - 예시: 사용자가 "비비고 왕교자"라고 하면 → product:"비비고 왕교자", item:"교자", category:"냉동식품" 모두 slots에 포함
+    - 예시: 사용자가 "사과"라고 하면 → product:"사과", item:"사과", category:"과일" 모두 slots에 포함
+
+9.  **keywords 필수 포함**: product_tbl에서 매핑된 모든 값들은 반드시 keywords 배열에 포함되어야 합니다.
+    - 예시: "비비고 왕교자" 입력 시 → keywords에 ["비비고 왕교자", "교자", "냉동식품", "구매"] 포함
+
+10. **카테고리 유추 규칙**: 키워드에 해당하는 product, item, category가 아무것도 없을 경우, 사용자 입력을 분석하여 가장 유사한 카테고리를 추론하고 slots의 category에 할당해야 합니다.
+    - 예시: "물고기" → category: "육류/수산"
+    - 예시: "빵" → category: "베이커리"
+    - 예시: "음료수" → category: "음료"
+    - 예시: "견과" → category: "곡물/견과류"
+    - 예시: "치즈" → category: "유제품"
+
 # --- 기능별 예시 ---
 
 ## 예시 1: 상품 검색
 - 입력: "유기농 수박 1kg 3봉지 만원 이하로 구매"
-- 출력: {{"rewrite": {{"text": "유기농 수박 1kg 3봉지 구매", "keywords": ["수박", "채소", "유기농", "구매"], "confidence": 0.9, "changes": ["'만원 이하로' → 가격 슬롯 이동"]}}, "slots": {{"product":"교자", "quantity": 3, "category": "채소", "item": "수박", "organic": true, "price_cap": 10000, "category": "과일"}}}}
+- 출력: {{"rewrite": {{"text": "유기농 수박 1kg 3봉지 구매", "keywords": ["수박", "과일", "유기농", "구매"], "confidence": 0.9, "changes": ["'만원 이하로' → 가격 슬롯 이동"]}}, "slots": {{"product":"수박", "quantity": 3, "category": "과일", "item": "수박", "organic": true, "price_cap": 10000}}}}
 
 - 입력: "국내산 귤 5000원대로 주문"
-- 출력: {{"rewrite": {{"text": "미국산 고등어 주문", "keywords": ["고등어", "육류/수산", "미국산", "주문"], "confidence": 0.8, "changes": ["'5000원대로' → 가격 슬롯 이동", '미국산' 원산지 추출"]}}, "slots": {{"product":"귤","quantity": 1, "category": "육류/수산", "item": "귤", "origin": "미국산", "price_cap": 5000}}}}
+- 출력: {{"rewrite": {{"text": "국내산 귤 주문", "keywords": ["귤", "과일", "국내산", "주문"], "confidence": 0.8, "changes": ["'5000원대로' → 가격 슬롯 이동", "국내산 원산지 추출"]}}, "slots": {{"product":"귤","quantity": 1, "category": "과일", "item": "귤", "origin": "국내산", "price_cap": 5000}}}}
 
 - 입력: "맛있는 사과 찾아줘"
 - 출력: {{"rewrite": {{"text": "맛있는 사과 검색", "keywords": ["사과", "과일", "맛있는", "검색"], "confidence": 0.7, "changes": ["'찾아줘' → '검색'"]}}, "slots": {{"product":"사과", "quantity": 1, "category": "과일", "item": "사과"}}}}
+
+- 입력: "비비고 왕교자 2팩 주문해줘"
+- 출력: {{"rewrite": {{"text": "비비고 왕교자 2팩 주문", "keywords": ["비비고 왕교자", "교자", "냉동식품", "주문"], "confidence": 0.9, "changes": ["'해줘' → '주문'"]}}, "slots": {{"product":"비비고 왕교자", "quantity": 2, "category": "냉동식품", "item": "교자"}}}}
 
 ## 예시 2: 레시피 검색
 - 입력: "돼지고기랑 김치로 만들 수 있는 요리 알려줘"
@@ -163,7 +185,7 @@ def _llm_enhance_all(query: str) -> Optional[Dict[str, Any]]:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": f"입력: {query}"}
             ],
-            temperature=0.2,
+            temperature=0.1,
             response_format={"type": "json_object"},
             max_tokens=500
         )
