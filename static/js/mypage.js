@@ -614,8 +614,31 @@ document.addEventListener('click', async (e)=>{
       method:'DELETE', headers:{ 'Content-Type':'application/json' }, credentials:'include',
       body: JSON.stringify({ user_id: uid, recipe_url: url })
     });
+
+    // hjs 수정: 로컬스토리지에서도 삭제 (chat.js와 동일한 방식)
+    const favoritesKey = `favorite_recipes_${uid}`;
+    try {
+      const localFavorites = JSON.parse(localStorage.getItem(favoritesKey) || '[]');
+      const updatedFavorites = localFavorites.filter(item =>
+        item.url !== url && item.title !== title
+      );
+      localStorage.setItem(favoritesKey, JSON.stringify(updatedFavorites));
+    } catch(localErr) {
+      console.error('로컬스토리지 업데이트 실패:', localErr);
+    }
+
     const card = btn.closest('.bg-white.rounded-lg');
     if (card) card.remove();
+
+    // hjs 수정: 챗봇 즐겨찾기 목록 실시간 동기화
+    try {
+      if (window.chatBot && typeof window.chatBot.renderFavorites === 'function') {
+        window.chatBot.renderFavorites();
+      }
+    } catch(syncErr) {
+      console.log('챗봇 동기화 실패:', syncErr);
+    }
+
     showNotification(`"${title}"을(를) 즐겨찾기에서 제거했습니다.`, 'info');
   }catch(err){ console.error('remove favorite on mypage error', err); showNotification('삭제 중 오류가 발생했습니다.', 'error'); }
 });
