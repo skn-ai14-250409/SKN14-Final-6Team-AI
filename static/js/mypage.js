@@ -93,10 +93,7 @@ function setActiveMenu(menuType) {
 // 회원정보 수정 버튼 클릭
 function editProfile() {
     console.log('회원정보 수정 버튼이 클릭되었습니다.');
-    showNotification('회원정보 수정 기능은 곧 추가될 예정입니다.', 'info');
-    
-    // 미래에 모달이나 다른 페이지로 이동하는 기능을 여기에 추가
-    // 예: window.location.href = '/profile/edit';
+    showContent('profile');
 }
 
 // 개인정보 수정 관련 함수들

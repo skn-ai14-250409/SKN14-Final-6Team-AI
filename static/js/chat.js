@@ -69,7 +69,6 @@ class ChatBot {
     this.restoreChatState();
     // hjs 수정: 즐겨찾기 목록 렌더
     try { this.renderFavorites(); } catch(_) {}
-    this.hideCustomLoading()
   }
 
   bindEvents() {
@@ -356,7 +355,7 @@ class ChatBot {
     } catch(_) {}
     if (!silent && !messageOverride) this.addMessage(message, 'user');
     if (input) input.value = '';
-    if (!silent) this.showSmartLoading(message);
+    this.showSmartLoading(message);
     var headers = { 'Content-Type':'application/json' };
     var csrf = getCSRFToken && getCSRFToken(); if (csrf) headers['X-CSRFToken'] = csrf;
     return fetch('/api/chat', {
@@ -816,16 +815,12 @@ renderEvidenceResultBubble(data, ctx){
     }
 
     section.classList.remove('hidden'); countBadge.textContent=currentCart.items.length; list.innerHTML='';
-    console.log('장바구니 업데이트 시작. 상품 개수:', currentCart.items.length);
     currentCart.items.forEach(item=>{
       const itemDiv=document.createElement('div');
       itemDiv.className='cart-item flex items-center justify-between bg-white rounded p-2 text-sm';
       itemDiv.innerHTML=`
         <div class="flex items-center flex-1 mr-2">
-          <label class="flex items-center cursor-pointer mr-2">
-            <input type="checkbox" class="cart-select" data-product-name="${this.escapeHtml(item.name)}" style="pointer-events: auto; z-index: 10; position: relative;" />
-            <span class="ml-1 text-xs text-gray-400">선택</span>
-          </label>
+          <input type="checkbox" class="cart-select mr-2" data-product-name="${this.escapeHtml(item.name)}" />
           <div>
             <span class="font-medium">${this.escapeHtml(item.name)}</span>
             <div class="text-xs text-gray-500">${this.formatPrice(item.unit_price)}원</div>
@@ -840,120 +835,19 @@ renderEvidenceResultBubble(data, ctx){
           <i class="fas fa-times"></i>
         </button>`;
       list.appendChild(itemDiv);
-
-      // hjs 수정: 체크박스 변경 시 금액 재계산
-      const checkbox = itemDiv.querySelector('.cart-select');
-      if (checkbox) {
-        checkbox.checked = true; // 명시적으로 체크된 상태로 설정
-        console.log('체크박스 생성됨:', item.name, '상태:', checkbox.checked);
-
-        // 여러 이벤트를 모두 처리
-        checkbox.addEventListener('change', () => {
-          console.log('체크박스 변경됨 (change):', item.name, '새 상태:', checkbox.checked);
-          this.recalculateCartTotals();
-        });
-
-        checkbox.addEventListener('click', (e) => {
-          console.log('체크박스 클릭됨 (click):', item.name, '상태:', checkbox.checked);
-          // 클릭 이벤트에서는 상태가 바뀌기 전이므로 setTimeout 사용
-          setTimeout(() => {
-            console.log('체크박스 클릭 후 상태:', item.name, '새 상태:', checkbox.checked);
-            this.recalculateCartTotals();
-          }, 0);
-        });
-      }
     });
 
+    subtotalEl.textContent=this.formatPrice(currentCart.subtotal)+'원';
+    // hjs 수정: 할인금액은 상품할인만 포함(무료배송 제외)
+    const productDiscountAmount=(currentCart.discounts||[]).filter(d=>d.type!=='free_shipping').reduce((acc,d)=>acc+(d.amount||0),0);
+    discountEl.textContent=`- ${this.formatPrice(productDiscountAmount)}원`;
+    // 표시용 배송비: 무료배송이면 0원, 아니면 shipping_fee
+    const hasFreeShip = (currentCart.discounts||[]).some(d=>d.type==='free_shipping');
+    const displayShipping = hasFreeShip ? 0 : (currentCart.shipping_fee||0);
+    if (shippingFeeEl) shippingFeeEl.textContent=this.formatPrice(displayShipping)+'원';
+    totalEl.textContent=this.formatPrice(currentCart.total)+'원';
     checkoutButton.classList.remove('hidden');
     // 선택 제거 버튼은 UX 요청으로 제거 (기능 유지: 선택 결제만 사용)
-
-    // hjs 수정: 모든 체크박스가 추가된 후 초기 금액 계산 (비동기로 실행)
-    setTimeout(() => {
-      this.recalculateCartTotals();
-    }, 0);
-  }
-
-  // hjs 수정: 선택된 상품만의 금액 재계산
-  recalculateCartTotals(){
-    console.log('=== recalculateCartTotals 시작 ===');
-    if (!this.cartState || !this.cartState.items) {
-      console.log('cartState 없음');
-      return;
-    }
-
-    const allCheckboxes = document.querySelectorAll('.cart-select');
-    const selectedCheckboxes = document.querySelectorAll('.cart-select:checked');
-    console.log('전체 체크박스:', allCheckboxes.length, '선택된 체크박스:', selectedCheckboxes.length);
-
-    const selectedProductNames = Array.from(selectedCheckboxes).map(cb => cb.dataset.productName).filter(Boolean);
-    console.log('선택된 상품명:', selectedProductNames);
-
-    const selectedItems = this.cartState.items.filter(item => selectedProductNames.includes(item.name));
-    console.log('cartState.items:', this.cartState.items.length, '선택된 상품:', selectedItems.length);
-
-    // 선택된 상품들의 소계 계산
-    const subtotal = selectedItems.reduce((acc, item) => acc + (parseFloat(item.unit_price||0) * parseInt(item.qty||0, 10)), 0);
-    console.log('계산된 소계:', subtotal);
-
-    // 멤버십 정보
-    const m = (this.cartState.membership || {});
-    const rate = Number((m.discount_rate != null ? m.discount_rate : (m.meta && m.meta.discount_rate)) || 0);
-    const freeThr = Number((m.free_shipping_threshold != null ? m.free_shipping_threshold : (m.meta && m.meta.free_shipping_threshold)) || 30000);
-
-    console.log('멤버십 정보:', m);
-    console.log('무료배송 기준:', freeThr);
-
-    // 할인 계산
-    const membershipDiscount = Math.floor(subtotal * rate);
-    const effectiveSubtotal = subtotal - membershipDiscount;
-    const BASE_SHIPPING = 3000;
-
-    // 할인 목록 구성
-    const discounts = [];
-    if (membershipDiscount > 0 && selectedItems.length > 0) {
-      discounts.push({ type: 'membership_discount', amount: membershipDiscount, description: '멤버십 할인' });
-    }
-
-    // 무료배송 조건 확인 (멤버십별 기준 적용)
-    const qualifiesForFreeShipping = (effectiveSubtotal >= freeThr && selectedItems.length > 0);
-    const isPremiumFreeShipping = (freeThr === 0 && selectedItems.length > 0); // premium은 무조건 무료
-
-    if (qualifiesForFreeShipping || isPremiumFreeShipping) {
-      discounts.push({ type: 'free_shipping', amount: BASE_SHIPPING, description: '무료배송' });
-    }
-
-    // UI 업데이트
-    const subtotalEl = document.getElementById('subtotalAmount');
-    const discountEl = document.getElementById('discountAmount');
-    const totalEl = document.getElementById('totalAmount');
-    const shippingFeeEl = document.getElementById('shippingFee');
-
-    if (subtotalEl) subtotalEl.textContent = this.formatPrice(subtotal) + '원';
-
-    const productDiscountAmount = discounts.filter(d => d.type !== 'free_shipping').reduce((acc, d) => acc + (d.amount || 0), 0);
-    if (discountEl) discountEl.textContent = `- ${this.formatPrice(productDiscountAmount)}원`;
-
-    const hasFreeShip = discounts.some(d => d.type === 'free_shipping');
-    const displayShipping = selectedItems.length > 0 ? (hasFreeShip ? 0 : BASE_SHIPPING) : 0;
-
-    console.log('무료배송 조건:', {
-      freeThr,
-      effectiveSubtotal,
-      qualifiesForFreeShipping,
-      isPremiumFreeShipping,
-      hasFreeShip,
-      displayShipping
-    });
-
-    if (shippingFeeEl) shippingFeeEl.textContent = this.formatPrice(displayShipping) + '원';
-
-    const totalDiscount = discounts.reduce((acc, d) => acc + (d.amount || 0), 0);
-
-    // 총액에서도 실제 배송비(displayShipping) 사용
-    const total = Math.max(0, subtotal + displayShipping - totalDiscount);
-    console.log('최종 계산:', `상품금액(${subtotal}) + 배송비(${displayShipping}) - 할인(${totalDiscount}) = ${total}`);
-
-    if (totalEl) totalEl.textContent = this.formatPrice(total) + '원';
   }
 
   updateOrderInfo(order){
@@ -1012,7 +906,7 @@ renderEvidenceResultBubble(data, ctx){
       if (pending){
         this.addMessage(pending, 'user');
         // hjs 수정: 마이페이지→챗봇 브릿지 시 봇 응답(레시피 설명 포함)을 즉시 화면에 표시하기 위해 silent=false로 전송
-        this.sendMessage(pending, true);
+        this.sendMessage(pending, false);
         localStorage.removeItem(`chat_pending_message_${this.userId}`);
       }
     }catch(_){ }

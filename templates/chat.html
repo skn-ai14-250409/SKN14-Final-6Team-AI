@@ -29,10 +29,10 @@
         
         <!-- 중앙: 챗봇 / 마이페이지 버튼 -->
         <div class="flex items-center space-x-2">
-            <button id="navChatbot" onclick="switchTopTab('chatbot')" class="nav-btn active px-4 py-2 bg-green-600 text-white rounded-lg font-medium transition duration-300 hover:bg-green-700">
+            <button id="navChatbot" onclick="switchTopTab('chatbot')" class="nav-btn active px-4 py-2 bg-green-600 bg-opacity-20 text-green-600 rounded-lg font-medium transition duration-300 border-2 border-green-600">
             <i class="fas fa-robot mr-2"></i>챗봇
             </button>
-            <button id="navMypage" onclick="switchTopTab('mypage')" class="nav-btn px-4 py-2 bg-white text-green-600 rounded-lg font-medium transition duration-300 border-2 border-green-600 hover:bg-gray-50">
+            <button id="navMypage" onclick="switchTopTab('mypage')" class="nav-btn px-4 py-2 bg-green-600 text-white rounded-lg font-medium transition duration-300 hover:bg-green-700">
             <i class="fas fa-user mr-2"></i>마이페이지
             </button>
         </div>
@@ -196,7 +196,8 @@
                         <!-- hjs 수정: 장바구니 선택 툴바(전체 선택/해제, 선택 삭제) -->
                         <div class="flex items-center gap-2 mb-2">
                             <button id="cartSelectAll" class="px-2 py-1 text-xs border rounded hover:bg-gray-50">전체 선택</button>
-                            <button id="cartSelectNone" class="px-2 py-1 text-xs border rounded hover:bg-gray-50">전체 해제</button>
+                            <button id="cartSelectNone" class="px-2 py-1 text-xs border rounded hover:bg-gray-50">선택 해제</button>
+                            <button id="cartRemoveSelected" class="ml-auto px-2 py-1 text-xs border rounded text-red-600 hover:bg-red-50">선택 삭제</button>
                         </div>
                         
                         <div id="cartItems">
@@ -235,16 +236,15 @@
                     <!-- 왼쪽 사이드바 -->
                     <div class="w-80 bg-green-500 min-h-screen flex-shrink-0">
                         <div class="p-8">
-                            <div class="text-center mb-6">
-                                <div class="w-20 h-20 bg-gray-600 rounded-full mx-auto mb-3 flex items-center justify-center">
-                                    <i class="fas fa-user text-white text-2xl"></i>
+                            <!-- 사용자 정보 섹션 -->
+                            <div class="text-center mb-8">
+                                <div class="w-24 h-24 bg-gray-600 rounded-full mx-auto mb-4 flex items-center justify-center">
+                                    <i class="fas fa-user text-white text-3xl"></i>
                                 </div>
-                                <!-- hjs 수정: 마이페이지 상단에 사용자명 + 멤버십 배지 표시 -->
-                                <div class="flex items-center justify-center gap-2 mb-1">
-                                    <span class="text-white font-bold">{{ name }}님</span>
-                                    <span id="mypageMembershipBadge" class="text-xs"></span>
-                                </div>
-                                <h2 class="text-xl font-bold text-white mb-2">마이페이지</h2>
+                                <h2 class="text-2xl font-bold text-white mb-4">홍길동 님</h2>
+                                <button class="bg-white text-green-600 px-6 py-2 rounded-lg font-semibold hover:bg-gray-100 transition duration-200" onclick="editProfile()">
+                                    회원정보 수정
+                                </button>
                             </div>
                             <div class="space-y-3">
                                 <div class="menu-item flex items-center text-white py-3 px-4 hover:bg-green-400 rounded-lg cursor-pointer transition duration-200" data-menu="orders" onclick="showContent('orders')">
@@ -356,29 +356,27 @@
     <script>
         // hjs 수정: 상단 챗봇/마이페이지 전환
         function switchTopTab(target){
-            console.log('switchTopTab 호출됨, target:', target);
             const chatView = document.getElementById('chat-view');
             const myView = document.getElementById('mypage-view');
             const btnChat = document.getElementById('navChatbot');
             const btnMy = document.getElementById('navMypage');
-            console.log('버튼 요소들:', btnChat, btnMy);
             if (target === 'mypage'){
                 chatView.classList.add('hidden');
                 myView.classList.remove('hidden');
-                // hjs 수정: 버튼 스타일 동기화 (마이페이지 선택시 진한 녹색)
-                btnChat.className = 'nav-btn px-4 py-2 bg-white text-green-600 border-2 border-green-600 rounded-lg font-medium transition duration-300 hover:bg-gray-50';
-                btnMy.className = 'nav-btn active px-4 py-2 bg-green-600 text-white rounded-lg font-medium transition duration-300 hover:bg-green-700';
-                console.log('마이페이지 선택됨 - 챗봇 버튼 클래스:', btnChat.className);
-                console.log('마이페이지 선택됨 - 마이페이지 버튼 클래스:', btnMy.className);
+                // hjs 수정: 버튼 스타일 동기화
+                btnChat.classList.remove('active','bg-green-600','bg-opacity-20','text-green-600','border-2','border-green-600');
+                btnChat.classList.add('bg-green-600','text-white');
+                btnMy.classList.remove('bg-green-600','text-white');
+                btnMy.classList.add('active','bg-green-600','bg-opacity-20','text-green-600','border-2','border-green-600');
                 try { showContent('orders'); } catch(_){ }
             } else {
                 myView.classList.add('hidden');
                 chatView.classList.remove('hidden');
-                // hjs 수정: 버튼 스타일 동기화 (챗봇 선택시 진한 녹색)
-                btnMy.className = 'nav-btn px-4 py-2 bg-white text-green-600 border-2 border-green-600 rounded-lg font-medium transition duration-300 hover:bg-gray-50';
-                btnChat.className = 'nav-btn active px-4 py-2 bg-green-600 text-white rounded-lg font-medium transition duration-300 hover:bg-green-700';
-                console.log('챗봇 선택됨 - 마이페이지 버튼 클래스:', btnMy.className);
-                console.log('챗봇 선택됨 - 챗봇 버튼 클래스:', btnChat.className);
+                // hjs 수정: 버튼 스타일 동기화(챗봇 활성)
+                btnMy.classList.remove('active','bg-green-600','bg-opacity-20','text-green-600','border-2','border-green-600');
+                btnMy.classList.add('bg-green-600','text-white');
+                btnChat.classList.remove('bg-green-600','text-white');
+                btnChat.classList.add('active','bg-green-600','bg-opacity-20','text-green-600','border-2','border-green-600');
             }
         }
         // 탭 전환 기능
@@ -632,14 +630,10 @@
             // hjs 수정: 카트 선택 툴바 이벤트 바인딩
             const selectAll = document.getElementById('cartSelectAll');
             const selectNone = document.getElementById('cartSelectNone');
-            if (selectAll){ selectAll.addEventListener('click', ()=>{
-                document.querySelectorAll('.cart-select').forEach(cb => { cb.checked = true; });
-                if (window._chatbot && window._chatbot.recalculateCartTotals) window._chatbot.recalculateCartTotals();
-            }); }
-            if (selectNone){ selectNone.addEventListener('click', ()=>{
-                document.querySelectorAll('.cart-select').forEach(cb => { cb.checked = false; });
-                if (window._chatbot && window._chatbot.recalculateCartTotals) window._chatbot.recalculateCartTotals();
-            }); }
+            const removeSel = document.getElementById('cartRemoveSelected');
+            if (selectAll){ selectAll.addEventListener('click', ()=>{ document.querySelectorAll('.cart-select').forEach(cb=>{ cb.checked = true; }); }); }
+            if (selectNone){ selectNone.addEventListener('click', ()=>{ document.querySelectorAll('.cart-select').forEach(cb=>{ cb.checked = false; }); }); }
+            if (removeSel){ removeSel.addEventListener('click', ()=>{ try { if (window.ChatCart) ChatCart.handleRemoveSelected(window._chatbot); } catch(_){} }); }
         });
     </script>
     
