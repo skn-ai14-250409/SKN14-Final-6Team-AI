@@ -1,7 +1,7 @@
 # GROCERY_CHATBOT/cart_routes.py
 from fastapi import APIRouter, Request, Cookie
 from pydantic import BaseModel
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import secrets
 
 # cart_order의 DB 연동 함수 재사용
@@ -29,6 +29,10 @@ class UpdatePayload(BaseModel):
     user_id: Optional[str] = None
     product_name: str
     quantity: int
+
+class SelectedPayload(BaseModel):
+    user_id: Optional[str] = None
+    products: List[str]
 
 # ----- 라우트 -----
 @router.get("/get")
@@ -59,4 +63,26 @@ async def cart_update(payload: UpdatePayload,
     # update_cart_item은 {"cart": {...}} 또는 {"error": "..."} 형태
     if "error" in result:
         return {"error": result["error"], "cart": {"items": [], "subtotal": 0, "discounts": [], "total": 0}}
+    return result
+
+@router.post("/checkout-selected")
+async def checkout_selected(payload: SelectedPayload,
+                            request: Request,
+                            user_id_cookie: Optional[str] = Cookie(None, alias="user_id")):
+    """선택한 상품들만 결제 처리"""
+    uid = _resolve_user_id(request, payload.user_id, user_id_cookie)
+    from nodes.cart_order import checkout
+    state = ChatState(user_id=uid, checkout={"selected_names": payload.products})
+    result = checkout(state)
+    return result
+
+@router.post("/remove-selected")
+async def remove_selected(payload: SelectedPayload,
+                          request: Request,
+                          user_id_cookie: Optional[str] = Cookie(None, alias="user_id")):
+    """선택한 상품들만 장바구니에서 제거"""
+    uid = _resolve_user_id(request, payload.user_id, user_id_cookie)
+    from nodes.cart_order import remove_from_cart
+    state = ChatState(user_id=uid, checkout={"selected_names": payload.products})
+    result = remove_from_cart(state)
     return result

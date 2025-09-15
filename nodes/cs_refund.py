@@ -179,6 +179,18 @@ def handle_partial_refund_with_image(
     image_analysis = None
     if state.attachments:
         image_analysis = analyze_attachments(state.attachments)
+        # hjs 수정: 지원되지 않는 파일 유형 안내
+        if image_analysis and isinstance(image_analysis, dict) and image_analysis.get("error") == "unsupported_type":
+            supported = image_analysis.get("supported_types") or ["png","jpg","jpeg","gif","webp"]
+            return {
+                "cs": {
+                    "message": (
+                        "해당 파일은 지원되지 않는 파일입니다. 지원되는 파일로 업로드를 진행해주세요. "
+                        + ", ".join(supported)
+                    )
+                },
+                "meta": {"next_step": "done"}
+            }
     same, same_conf, _ = check_product_match(product, image_analysis or {})
     if not same or same_conf < CS_PRODUCT_MATCH_THRESHOLD:
         return {

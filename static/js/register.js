@@ -220,6 +220,11 @@ class RegistrationManager {
     if (!password.value.trim()) return this._fail(password, "비밀번호를 입력해주세요.");
     if (!passwordConfirm.value.trim()) return this._fail(passwordConfirm, "비밀번호 확인을 입력해주세요.");
 
+    // hjs 수정: 비밀번호 8자 미만 경고
+    if ((password.value || '').length < 8) {
+      return this._fail(password, "비밀번호는 8자이상 입력해야합니다.");
+    }
+
     if (password.value !== passwordConfirm.value) {
       return this._fail(passwordConfirm, "비밀번호가 일치하지 않습니다.");
     }

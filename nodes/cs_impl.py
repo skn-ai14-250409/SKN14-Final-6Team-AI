@@ -29,11 +29,13 @@ def _classify_cs_type(query: str, attachments: List[str]) -> str:
     q = (query or "").strip()
     if attachments:
         return "cs_intake"
-    faq_keywords = [
+    faq_keywords = [  # hjs 수정: 규정/faq 키워드 추가로 정책/약관 문의 포착 강화
         "이용약관",
         "개인정보",
         "정책",
         "약관",
+        "규정",
+        "faq",
         "서비스",
         "회원",
         "가입",

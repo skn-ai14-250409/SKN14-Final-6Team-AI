@@ -95,6 +95,72 @@ def ensure_chat_session(user_id: str, session_id: str, status: str = "active") -
         if conn and conn.is_connected():
             conn.close()
 
+# hjs 수정: 활성 세션 타임아웃 처리 (updated_at 기준)
+def timeout_inactive_sessions(minutes: int = 10) -> None:
+    conn = _conn()
+    if not conn:
+        return
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE chat_sessions
+                SET status='timeout', updated_at=NOW()
+                WHERE status='active' AND updated_at < (NOW() - INTERVAL %s MINUTE)
+                """,
+                (minutes,)
+            )
+        conn.commit()
+    except Error as e:
+        logger.warning(f"timeout_inactive_sessions 실패: {e}")
+    finally:
+        if conn and conn.is_connected():
+            conn.close()
+
+# hjs 수정: 사용자의 다른 활성 세션을 completed로 마감(채팅 초기화 등)
+def complete_other_sessions(user_id: str, current_session_id: str) -> None:
+    conn = _conn()
+    if not conn:
+        return
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE chat_sessions
+                SET status='completed', updated_at=NOW()
+                WHERE user_id=%s AND status='active' AND session_id <> %s
+                """,
+                (user_id, _trim_session_id(current_session_id))
+            )
+        conn.commit()
+    except Error as e:
+        logger.warning(f"complete_other_sessions 실패: {e}")
+    finally:
+        if conn and conn.is_connected():
+            conn.close()
+
+# hjs 수정: 사용자의 활성 세션을 일괄 completed 처리(로그아웃/브라우저 종료)
+def complete_sessions_for_user(user_id: str) -> None:
+    conn = _conn()
+    if not conn:
+        return
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE chat_sessions
+                SET status='completed', updated_at=NOW()
+                WHERE user_id=%s AND status='active'
+                """,
+                (user_id,)
+            )
+        conn.commit()
+    except Error as e:
+        logger.warning(f"complete_sessions_for_user 실패: {e}")
+    finally:
+        if conn and conn.is_connected():
+            conn.close()
+
 
 def ensure_userlog_for_session(user_id: str, session_id: str) -> str:
     """log_id를 session_id(최대 45자)에 매핑하여 생성/유지"""

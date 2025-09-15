@@ -29,16 +29,11 @@ def cs_hub(state: ChatState) -> ChatState:
     if target == 'handoff':
         state.cs["classification"] = "handoff"
         return state
-    
-    # CS 타입 분류 수행
-    user_query = state.query or ""
-    attachments = state.attachments or []
-    
-    cs_type = _classify_cs_type(user_query, attachments)
-    logger.info(f"CS type classified as: {cs_type}")
-    
-    # 분류 결과를 상태에 저장
-    state.cs["classification"] = cs_type
+
+    # hjs 수정: 라우터가 cs 하위타입을 지정한 경우 그대로 신뢰하고 분류를 설정
+    if target in ('cs_intake', 'faq_policy_rag'):
+        state.cs["classification"] = 'faq_policy' if target == 'faq_policy_rag' else 'cs_intake'
+        return state
     
     return state
 
@@ -145,7 +140,7 @@ def determine_route(state: ChatState) -> str:
         return 'clarify'
     elif target in ['product_search', 'recipe_search', 'cart_add', 'cart_remove', 'cart_view', 'checkout']:
         return 'search_hub'
-    elif target in ['cs', 'handoff']:
+    elif target in ['handoff', 'cs_intake', 'faq_policy_rag']:
         return 'cs_hub'
     else:
         # 알 수 없는 타겟의 경우 clarify로 보냄
@@ -309,7 +304,7 @@ def run_workflow_fallback(state: ChatState) -> ChatState:
         return search_hub(state)
         
     # CS 관련 의도들을 cs_hub로 전달  
-    elif target in ['cs', 'handoff']:
+    elif target in ['cs_intake', 'faq_policy_rag', 'handoff']:
         logger.info(f"Fallback routing to cs_hub for target: {target}")
         return cs_hub(state)
         

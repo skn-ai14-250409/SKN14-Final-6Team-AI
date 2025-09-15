@@ -10,6 +10,7 @@ import re
 from typing import Optional, List, Dict, Any
 import jwt
 from datetime import datetime, timedelta
+from uuid import uuid4
 import logging
 import os
 import mysql.connector
@@ -23,6 +24,11 @@ logger = logging.getLogger(__name__)
 # JWT 설정
 SECRET_KEY = "qook_chatbot_secret_key_2024"
 ALGORITHM = "HS256"
+# 인스턴스 재시작 시 토큰 무효화를 위해 런타임 솔트 적용
+_RUNTIME_SALT = os.environ.get("QOOK_INSTANCE_SALT") or uuid4().hex
+
+def _runtime_secret() -> str:
+    return f"{SECRET_KEY}:{_RUNTIME_SALT}"
 ACCESS_TOKEN_EXPIRE_HOURS = 24
 
 # 보안 스키마
@@ -73,13 +79,13 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     else:
         expire = datetime.utcnow() + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)
     to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    encoded_jwt = jwt.encode(to_encode, _runtime_secret(), algorithm=ALGORITHM)
     return encoded_jwt
 
 def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
     """JWT 토큰 검증"""
     try:
-        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(credentials.credentials, _runtime_secret(), algorithms=[ALGORITHM])
         user_id: str = payload.get("sub")
         if user_id is None:
             raise HTTPException(status_code=401, detail="Invalid authentication credentials")
@@ -271,13 +277,17 @@ async def register(user_data: UserRegistration, response: Response):
         if result["success"]:
             # 회원가입 성공 시 자동 로그인
             access_token = create_access_token(data={"sub": result["user_id"]})
-            # 로그인과 동일하게 쿠키에도 설정해 페이지 전환 후 인증 활용 가능
+            # 로그인과 동일하게 세션 쿠키 설정
             response.set_cookie(
-            key="user_id",
-            value=result["user_id"],
-            max_age=ACCESS_TOKEN_EXPIRE_HOURS * 3600,
-            samesite="lax"
-        )
+                key="access_token",
+                value=f"Bearer {access_token}",
+                samesite="lax"
+            )
+            response.set_cookie(
+                key="user_id",
+                value=result["user_id"],
+                samesite="lax"
+            )
             
             return {
                 "success": True,
@@ -314,13 +324,17 @@ async def login(user_login: UserLogin, response: Response, request: Request):
             except Exception as e:
                 logger.warning(f"login audit 실패: {e}")
             
-            # HTTP-Only 쿠키로도 토큰 설정 (보안 강화)
+            # 세션 쿠키로 토큰/유저 설정(브라우저 종료 시 만료)
             response.set_cookie(
-            key="user_id",
-            value=user["user_id"],
-            max_age=ACCESS_TOKEN_EXPIRE_HOURS * 3600,
-            samesite="lax"
-        )
+                key="access_token",
+                value=f"Bearer {access_token}",
+                samesite="lax"
+            )
+            response.set_cookie(
+                key="user_id",
+                value=user["user_id"],
+                samesite="lax"
+            )
             
             return {
                 "success": True,
@@ -346,7 +360,10 @@ async def logout(response: Response, user_id: str = Depends(verify_token)):
         response.delete_cookie(key="access_token")
         response.delete_cookie(key="user_id")
         try:
+            # hjs 수정: 세션 비활성화 + chat_sessions 완료 + userlog 로그아웃 시간 기록
             db_audit.deactivate_user_sessions(user_id)
+            db_audit.complete_sessions_for_user(user_id)
+            db_audit.finish_userlog_for_user(user_id)
         except Exception as e:
             logger.warning(f"logout audit 실패: {e}")
         
@@ -358,6 +375,30 @@ async def logout(response: Response, user_id: str = Depends(verify_token)):
     except Exception as e:
         logger.error(f"로그아웃 처리 중 오류: {e}")
         raise HTTPException(status_code=500, detail="로그아웃 처리 중 오류가 발생했습니다")
+
+@auth_router.post("/logout-beacon")
+async def logout_beacon(request: Request, response: Response):
+    """쿠키 기반 로그아웃(비권한). 브라우저 종료 시 비콘/페치로 호출 가능.
+    Authorization 헤더 없이도 쿠키만으로 세션 종료 처리.
+    """
+    try:
+        uid = request.cookies.get("user_id")
+        # 쿠키 삭제
+        response.delete_cookie(key="access_token")
+        response.delete_cookie(key="user_id")
+        try:
+            if uid:
+                # hjs 수정: 브라우저 종료/비콘에서도 세션/로그 마감
+                db_audit.deactivate_user_sessions(uid)
+                db_audit.complete_sessions_for_user(uid)
+                db_audit.finish_userlog_for_user(uid)
+        except Exception as e:
+            logger.warning(f"logout-beacon audit 실패: {e}")
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"logout-beacon 오류: {e}")
+        # 비콘 시나리오에선 실패하더라도 200으로 넘기는 편이 UX에 유리
+        return {"success": False}
 
 @auth_router.get("/profile")
 async def get_profile(user_id: str = Depends(verify_token)):

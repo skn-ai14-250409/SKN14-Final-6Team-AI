@@ -48,6 +48,15 @@ class LoginHandler {
         this.showSuccess('로그인 성공! 메인 페이지로 이동합니다...');
         localStorage.setItem('access_token', data.access_token);
         localStorage.setItem('user_info', JSON.stringify(data.user));
+        // hjs 수정: 새 로그인 시 이전 채팅 세션/메시지 초기화
+        try {
+          const uid = (data.user && (data.user.user_id || data.user.id || data.user.uid)) || '';
+          if (uid) {
+            localStorage.removeItem(`chat_messages_${uid}`);
+            localStorage.removeItem(`chat_session_${uid}`);
+            localStorage.removeItem(`chat_pending_message_${uid}`);
+          }
+        } catch (_) {}
         setTimeout(() => { window.location.href = '/chat'; }, 1500);
       } else {
         this.showError(data.detail || data.message || '로그인에 실패했습니다.');

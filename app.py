@@ -13,11 +13,12 @@ from utils.logging_config import setup_logging
 from graph_interfaces import ChatState
 from workflow import run_workflow
 from nodes import cart_order
-from auth_routes import auth_router, verify_token
+from auth_routes import auth_router
 from auth_system.kakao_address import kakao_router
 from cart_routes import router as cart_router
 from upload_routes import router as upload_router
 from orders_routes import orders_router
+from recipes_routes import router as recipes_router  # hjs 수정
 from profile_routes import router as profile_router
 
 # [ADDED] CS/RAG 유틸 임포트
@@ -26,6 +27,11 @@ from nodes.cs_refund import handle_partial_refund_with_image as handle_partial_r
 
 import asyncio
 from utils import db_audit
+import os
+try:
+    import mysql.connector
+except Exception:
+    mysql = None
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -42,6 +48,7 @@ app.include_router(cart_router)
 app.include_router(upload_router)
 app.include_router(orders_router)
 app.include_router(profile_router)
+app.include_router(recipes_router)  # hjs 수정: 레시피 즐겨찾기 API
 
 # ---------------- 조사(을/를) 헬퍼 ----------------
 def _josa_eul_reul(word: str) -> str:
@@ -56,19 +63,21 @@ def _josa_eul_reul(word: str) -> str:
 
 # 인증 상태 확인 유틸
 async def get_current_user(request: Request):
+    """쿠키의 access_token을 직접 검증하여 현재 사용자 ID를 반환합니다.
+    런타임 솔트를 사용하므로 프로세스 재시작 시 기존 토큰은 무효화됩니다.
+    """
     try:
-        # access_token 쿠키 확인
+        import jwt
+        from auth_routes import ALGORITHM as _ALG
+        from auth_routes import _runtime_secret as _sec
         token = request.cookies.get("access_token")
         if token and token.startswith("Bearer "):
-            token = token[7:]
-            return verify_token(token)
-        
-        # user_id 쿠키 확인 (로그인 시 설정됨)
-        user_id = request.cookies.get("user_id")
-        if user_id:
-            return user_id
-            
-    except:
+            raw = token[7:]
+            payload = jwt.decode(raw, _sec(), algorithms=[_ALG])
+            uid = payload.get("sub")
+            if uid:
+                return uid
+    except Exception:
         pass
     return None
 
@@ -84,10 +93,42 @@ async def get_landing_page(request: Request):
 @app.get("/chat", response_class=HTMLResponse)
 async def get_chat_page(request: Request):
     current_user = await get_current_user(request)
+    # 사용자 표시명 조회: DB의 이름 우선, 없으면 user_id 사용
+    display_name = None
+    try:
+        if current_user:
+            display_name = _get_user_display_name(current_user) or str(current_user)
+    except Exception:
+        display_name = str(current_user) if current_user else None
     return templates.TemplateResponse("chat.html", {
         "request": request,
-        "current_user": current_user
+        "current_user": current_user,
+        "name": display_name
     })
+
+def _get_user_display_name(user_id: str) -> str | None:
+    """userinfo_tbl에서 사용자 이름을 조회합니다. 실패 시 None.
+    환경변수(DB_HOST, DB_USER, DB_PASSWORD/DB_PASS, DB_NAME)로 접속합니다.
+    """
+    try:
+        host = os.getenv("DB_HOST", "127.0.0.1")
+        user = os.getenv("DB_USER", "qook_user")
+        password = os.getenv("DB_PASSWORD", os.getenv("DB_PASS", "qook_pass"))
+        database = os.getenv("DB_NAME", "qook_chatbot")
+        port = int(os.getenv("DB_PORT", "3306"))
+        conn = mysql.connector.connect(host=host, user=user, password=password, database=database, port=port)
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT name FROM userinfo_tbl WHERE user_id=%s LIMIT 1", (user_id,))
+                row = cur.fetchone()
+                if row and row[0]:
+                    return str(row[0])
+        finally:
+            if conn and conn.is_connected():
+                conn.close()
+    except Exception:
+        return None
+    return None
 
 # # 메인 챗봇 API
 # @app.post("/api/chat")
@@ -196,12 +237,16 @@ async def chat_api(request: Request):
             query=data.get('message', '')
         )
         logger.info(f"Chat API Request: User '{state.user_id}', Query: '{state.query}'")
-        # 비침투 로깅 훅: 세션/유저로그/유저 메시지 저장
+        # 비침투 로깅 훅: 세션/유저로그 생성 후 유저 메시지 저장 (순서 보장)
         try:
             if state.session_id:
-                asyncio.create_task(_audit_chat_enter(state, request))
+                # hjs 수정: 세션 활성화 및 유휴 타임아웃/다른 세션 정리
+                db_audit.ensure_chat_session(state.user_id, state.session_id, status='active')
+                db_audit.timeout_inactive_sessions(10)
+                db_audit.complete_other_sessions(state.user_id, state.session_id)
+                db_audit.ensure_userlog_for_session(state.user_id, state.session_id)
                 if state.query:
-                    asyncio.create_task(db_audit.insert_history(state.session_id, 'user', state.query))
+                    db_audit.insert_history(state.session_id, 'user', state.query)
         except Exception:
             pass
 
@@ -337,16 +382,17 @@ async def chat_api(request: Request):
             LAST_USER_CS.pop(state.user_id, None)
         # -----------------------------------------------
 
-        # 비침투 로깅 훅: 최종 상태/봇 메시지 저장
+        # 비침투 로깅 훅: 최종 상태/봇 메시지 저장 (순차 실행)
         try:
             if state.session_id:
                 step = final_state.meta.get('next_step') or 'END'
-                route_type = 'cs' if (final_state.route.get('target') in ('cs','handoff')) else 'search_order'
+                # hjs 수정: 라우팅 타겟에서 'cs' 대신 'cs_intake'/'faq_policy_rag'로 집계
+                route_type = 'cs' if (final_state.route.get('target') in ('cs_intake','faq_policy_rag','handoff')) else 'search_order'
                 qd = {"query": final_state.query, "slots": final_state.slots, "rewrite": final_state.rewrite}
                 cd = {"items": (final_state.cart or {}).get('items', []), "subtotal": (final_state.cart or {}).get('subtotal'), "total": (final_state.cart or {}).get('total')}
-                asyncio.create_task(db_audit.upsert_chat_state(state.session_id, step, route_type, qd, cd))
+                db_audit.upsert_chat_state(state.session_id, step, route_type, qd, cd)
                 if response_text:
-                    asyncio.create_task(db_audit.insert_history(state.session_id, 'bot', response_text))
+                    db_audit.insert_history(state.session_id, 'bot', response_text)
         except Exception:
             pass
 
@@ -416,23 +462,25 @@ async def get_mypage(request: Request):
         "current_user": current_user
     })
 
-@app.get("/app", response_class=HTMLResponse)
-async def get_app_layout(request: Request):
-    current_user = await get_current_user(request)
-    return templates.TemplateResponse("app-layout.html", {
-        "request": request,
-        "current_user": current_user,
-        "page_title": "통합 앱"
-    })
+# hjs 수정: /app 라우트 비활성화
+# @app.get("/app", response_class=HTMLResponse)
+# async def get_app_layout(request: Request):
+#     current_user = await get_current_user(request)
+#     return templates.TemplateResponse("app-layout.html", {
+#         "request": request,
+#         "current_user": current_user,
+#         "page_title": "통합 앱"
+#     })
 
-@app.get("/tab", response_class=HTMLResponse)
-async def get_tab_layout(request: Request):
-    current_user = await get_current_user(request)
-    return templates.TemplateResponse("tab-layout.html", {
-        "request": request,
-        "current_user": current_user,
-        "page_title": "Qook 서비스"
-    })
+# hjs 수정: /tab 라우트 비활성화
+# @app.get("/tab", response_class=HTMLResponse)
+# async def get_tab_layout(request: Request):
+#     current_user = await get_current_user(request)
+#     return templates.TemplateResponse("tab-layout.html", {
+#         "request": request,
+#         "current_user": current_user,
+#         "page_title": "Qook 서비스"
+#     })
 
 
 # [MERGE] --- 일괄 담기 API ---

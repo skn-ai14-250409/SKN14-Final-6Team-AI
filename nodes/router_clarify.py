@@ -46,6 +46,10 @@ def router_route(state: ChatState) -> Dict[str, Any]:
         else:
             route_result = _keyword_routing(state.query)
         
+        # hjs 수정: popular_products는 product_search로 일원화
+        if route_result.get('target') == 'popular_products':
+            route_result['target'] = 'product_search'
+            route_result['reason'] = (route_result.get('reason') or '') + ' (popular→product_search 일원화)'
         logger.info(f"라우팅 완료: Target='{route_result['target']}', Confidence={route_result['confidence']:.2f}")
         
         return {
@@ -64,13 +68,13 @@ def router_route(state: ChatState) -> Dict[str, Any]:
         }
 
 def _llm_routing(query: str) -> Dict[str, Any]:
-    """LLM 기반 의도 분류 (cart_remove 추가)"""
+    """LLM 기반 의도 분류 (hjs 수정: CS 하위타입 세분화 - cs_intake / faq_policy_rag)"""
     
     system_prompt = """
-당신은 신선식품 쇼핑몰의 고객 의도를 분석하는 전문가입니다.
-사용자의 입력을 다음 10가지 카테고리 중 가장 적합한 하나로 분류하세요:
+    당신은 신선식품 쇼핑몰의 고객 의도를 분석하는 전문가입니다.
+    사용자의 입력을 다음 카테고리 중 가장 적합한 하나로 분류하세요:
 
-1. product_search: 특정 상품을 찾거나, 추천을 요청할 때.
+1. product_search: 특정 상품을 찾거나, 추천(인기/베스트 포함)을 요청할 때.
    - 예: "유기농 사과 찾아줘", "오늘 저녁에 먹을만한 고기 있나요?"
 
 2. recipe_search: 특정 요리의 레시피나 추천을 원할 때.
@@ -88,11 +92,11 @@ def _llm_routing(query: str) -> Dict[str, Any]:
 6. checkout: 주문을 시작하거나 결제를 진행하고 싶을 때.
    - 예: "결제할게요", "이제 주문하고 싶어요"
 
-7. cs: 고객서비스 관련 문의. 주문내역, 배송, 환불, 상품 문제 등.
-   - 예: "주문내역 확인하고 싶어요", "배송이 너무 늦어요", "환불 정책이 어떻게 되나요?"
+7. cs_intake: 고객서비스 일반 문의. 주문내역, 배송, 환불 요청/진행, 상품 문제 등.
+   - 예: "주문내역 확인하고 싶어요", "배송이 너무 늦어요", "환불하고 싶어요"
 
-8. popular_products: 인기상품이나 베스트셀러를 추천받고 싶을 때.
-   - 예: "인기상품 추천해줘", "베스트셀러 뭐야?", "많이 팔린 상품", "인기있는 과일"
+8. faq_policy_rag: 이용 약관/정책/규정/FAQ/환불 규정 등 문서성 정책 질문.
+   - 예: "환불 규정이 어떻게 돼?", "이용 약관 알려줘", "개인정보 처리방침 있어?", "자주 묻는 질문"
 
 9. handoff: 상담사와 직접 대화하고 싶을 때.
    - 예: "상담원 연결해줘", "사람이랑 말하고 싶어"
@@ -100,9 +104,9 @@ def _llm_routing(query: str) -> Dict[str, Any]:
 10. clarify: 의도가 모호하거나, 일반적인 인사, 혹은 관련 없는 질문일 때.
    - 예: "안녕", "고마워", "도움말"
 
-응답은 반드시 다음 JSON 형식으로만 하세요:
-{"target": "분류된 카테고리", "confidence": 0.0-1.0, "reason": "분류 이유"}
-"""
+    응답은 반드시 다음 JSON 형식으로만 하세요:
+    {"target": "분류된 카테고리", "confidence": 0.0-1.0, "reason": "분류 이유"}
+    """
 
     user_prompt = f'사용자 입력: "{query}"'
 
@@ -120,6 +124,7 @@ def _llm_routing(query: str) -> Dict[str, Any]:
         
         result = json.loads(content)
         return {
+            # hjs 수정: LLM이 cs를 반환하면 기본 cs_intake로 보정
             "target": result.get("target", "clarify"),
             "confidence": float(result.get("confidence", 0.5)),
             "reason": result.get("reason", "")
@@ -129,21 +134,24 @@ def _llm_routing(query: str) -> Dict[str, Any]:
         return _keyword_routing(query)
 
 def _keyword_routing(query: str) -> Dict[str, Any]:
-    """키워드 기반 폴백 라우팅 (더 세분화된 규칙)"""
+    """키워드 기반 폴백 라우팅 (hjs 수정: FAQ/정책 → faq_policy_rag로 직접 매핑)"""
     
     query_lower = query.lower()
     
     # 각 의도별 키워드 정의 (우선순위가 높은 순서대로)
     intent_keywords = {
+        # hjs 수정: 정책/약관/규정/FAQ는 faq_policy_rag로 최우선 라우팅
+        "faq_policy_rag": ["약관", "이용 약관", "규정", "정책", "faq", "환불 규정", "환불규정", "개인정보", "처리방침"],
         "handoff": ["상담원", "상담사", "사람", "직원"],
-        "cs": ["주문내역", "주문 내역", "주문내역확인", "주문 내역 확인", "문의", "문제", "환불", "교환", "취소", "배송", "고장", "불량"],
+        # hjs 수정: 일반 CS는 cs_intake로 직접 라우팅 (이전 'cs' 제거)
+        "cs_intake": ["주문내역", "주문 내역", "주문내역확인", "주문 내역 확인", "문의", "문제", "환불", "교환", "취소", "배송", "고장", "불량"],
         "checkout": ["결제", "주문하기", "구매하기", "계산"],
-        "popular_products": ["인기상품", "베스트", "많이 팔린", "인기있는", "인기", "베스트셀러"],
         "cart_remove": ["빼줘", "빼기", "제거", "삭제"], 
         "cart_add": ["담아", "추가", "넣어"],
         "cart_view": ["장바구니", "카트", "담은 거", "목록"],
         "recipe_search": ["레시피", "요리법", "만들기", "뭐 먹지", "끓이는 법"],
-        "product_search": ["찾아", "검색", "있어?", "얼마", "가격", "추천"]
+        # hjs 수정: 인기/베스트 및 구매 의사(사고싶다) 관련 키워드를 product_search로 흡수
+        "product_search": ["찾아", "검색", "있어?", "얼마", "가격", "추천", "인기상품", "베스트", "많이 팔린", "인기있는", "인기", "베스트셀러", "사고싶", "사고 싶"]
     }
 
     # 가장 구체적인 의도부터 확인

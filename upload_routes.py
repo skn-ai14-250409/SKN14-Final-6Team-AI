@@ -16,7 +16,7 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 AUDIO_DIR = (BASE_DIR / "static" / "uploads" / "audio")
 AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 
-ALLOWED_TYPES = {"jpeg", "png", "gif", "bmp", "webp"}
+ALLOWED_TYPES = {"jpeg", "png", "gif", "bmp", "webp", "jpg"}
 MAX_MB = 20
 CHUNK_SIZE = 1024 * 1024  # 1MB
 
