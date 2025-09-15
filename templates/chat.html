@@ -29,10 +29,10 @@
         
         <!-- 중앙: 챗봇 / 마이페이지 버튼 -->
         <div class="flex items-center space-x-2">
-            <button id="navChatbot" onclick="switchTopTab('chatbot')" class="nav-btn active px-4 py-2 bg-green-600 bg-opacity-20 text-green-600 rounded-lg font-medium transition duration-300 border-2 border-green-600">
+            <button id="navChatbot" onclick="switchTopTab('chatbot')" class="nav-btn active px-4 py-2 bg-green-600 text-white rounded-lg font-medium transition duration-300 hover:bg-green-700">
             <i class="fas fa-robot mr-2"></i>챗봇
             </button>
-            <button id="navMypage" onclick="switchTopTab('mypage')" class="nav-btn px-4 py-2 bg-green-600 text-white rounded-lg font-medium transition duration-300 hover:bg-green-700">
+            <button id="navMypage" onclick="switchTopTab('mypage')" class="nav-btn px-4 py-2 bg-white text-green-600 rounded-lg font-medium transition duration-300 hover:bg-gray-50">
             <i class="fas fa-user mr-2"></i>마이페이지
             </button>
         </div>
@@ -480,20 +480,16 @@
             if (target === 'mypage'){
                 chatView.classList.add('hidden');
                 myView.classList.remove('hidden');
-                // hjs 수정: 버튼 스타일 동기화
-                btnChat.classList.remove('active','bg-green-600','bg-opacity-20','text-green-600','border-2','border-green-600');
-                btnChat.classList.add('bg-green-600','text-white');
-                btnMy.classList.remove('bg-green-600','text-white');
-                btnMy.classList.add('active','bg-green-600','bg-opacity-20','text-green-600','border-2','border-green-600');
+                // 마이페이지 선택: 마이페이지 버튼은 진한 녹색 배경 + 흰글씨
+                btnChat.className = 'nav-btn px-4 py-2 bg-white text-green-600 rounded-lg font-medium transition duration-300 hover:bg-gray-50';
+                btnMy.className = 'nav-btn active px-4 py-2 bg-green-600 text-white rounded-lg font-medium transition duration-300 hover:bg-green-700';
                 try { showContent('orders'); } catch(_){ }
             } else {
                 myView.classList.add('hidden');
                 chatView.classList.remove('hidden');
-                // hjs 수정: 버튼 스타일 동기화(챗봇 활성)
-                btnMy.classList.remove('active','bg-green-600','bg-opacity-20','text-green-600','border-2','border-green-600');
-                btnMy.classList.add('bg-green-600','text-white');
-                btnChat.classList.remove('bg-green-600','text-white');
-                btnChat.classList.add('active','bg-green-600','bg-opacity-20','text-green-600','border-2','border-green-600');
+                // 챗봇 선택: 챗봇 버튼은 진한 녹색 배경 + 흰글씨
+                btnMy.className = 'nav-btn px-4 py-2 bg-white text-green-600 rounded-lg font-medium transition duration-300 hover:bg-gray-50';
+                btnChat.className = 'nav-btn active px-4 py-2 bg-green-600 text-white rounded-lg font-medium transition duration-300 hover:bg-green-700';
             }
         }
         // 탭 전환 기능
@@ -557,190 +553,7 @@
             }
         }
 
-        // 가상 데이터로 카드 렌더링 테스트 (개발용)
-        function loadSampleData() {
-            // 샘플 레시피 데이터
-         
-
-            // 레시피 카드 렌더링
-            // renderSampleRecipes(sampleRecipes);
-            
-            // 상품 검색 시연을 위한 버튼 이벤트
-            document.querySelector('[data-message="인기 상품 추천해줘"]').addEventListener('click', () => {
-                renderSampleProducts(sampleProducts);
-            });
-        }
-
-        function renderSampleRecipes(recipes) {
-            const recipesList = document.getElementById('recipesList');
-            recipesList.innerHTML = '';
-
-            recipes.forEach(recipe => {
-                const card = document.createElement('div');
-                // hjs 수정: 별 버튼 하단 고정 위해 relative 추가
-                card.className = 'recipe-card relative bg-white rounded-lg p-3 border hover:shadow-md transition cursor-pointer mb-2';
-                card.innerHTML = `
-                    <div class="recipe-card-body">
-                        <h4 class="font-semibold text-gray-800 mb-2">${recipe.title}</h4>
-                        <p class="text-gray-600 mb-2 text-xs">${recipe.description}</p>
-                        <div class="flex items-center justify-between">
-                            <div class="recipe-info flex gap-3 text-xs text-gray-500">
-                                <span><i class="fas fa-clock mr-1"></i>${recipe.cooking_time}</span>
-                                <span><i class="fas fa-user mr-1"></i>${recipe.servings}</span>
-                            </div>
-                            <button class="recipe-ingredients-btn bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-1 rounded text-xs font-medium transition">
-                                <i class="fas fa-shopping-basket mr-1"></i>재료 추천받기
-                            </button>
-                        </div>
-                    </div>
-                    <!-- hjs 수정: 즐겨찾기 버튼을 좌측 하단으로 이동 -->
-                    <button class="favorite-btn absolute bottom-3 left-3" onclick="toggleFavorite(this)">
-                        <i class="fas fa-star text-gray-300"></i>
-                    </button>
-                `;
-                
-                // 재료 추천 버튼 이벤트 - chat_ver2.js의 실제 기능 사용
-                card.querySelector('.recipe-ingredients-btn').addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    // ChatBot 인스턴스의 requestRecipeIngredients 메소드 호출
-                    if (window.chatbot && window.chatbot.requestRecipeIngredients) {
-                        window.chatbot.requestRecipeIngredients(recipe);
-                    }
-                });
-                
-                recipesList.appendChild(card);
-            });
-        }
-
-        function renderSampleProducts(products) {
-            const productsSection = document.getElementById('productsSection');
-            const productsList = document.getElementById('productsList');
-            
-            productsSection.classList.remove('hidden');
-            productsList.innerHTML = '';
-
-            products.forEach(product => {
-                const card = document.createElement('div');
-                card.className = 'product-card bg-white rounded-lg p-3 border hover:shadow-md transition mb-2';
-                card.innerHTML = `
-                    <div class="flex items-center justify-between">
-                        <div class="flex-1">
-                            <h4 class="font-medium text-sm text-gray-800">${product.name}</h4>
-                            <p class="text-xs text-gray-500 mt-1">${product.origin}</p>
-                            <div class="flex items-center mt-1">
-                                <p class="text-green-600 font-bold text-sm">${product.price.toLocaleString()}원</p>
-                                ${product.organic ? '<span class="ml-2 px-1 py-0.5 bg-green-100 text-green-700 text-xs rounded">유기농</span>' : ''}
-                            </div>
-                        </div>
-                        <button class="add-to-cart bg-green-100 text-green-600 px-2 py-1 rounded text-xs hover:bg-green-200 transition" 
-                                data-product='${JSON.stringify(product)}'>
-                            담기
-                        </button>
-                    </div>
-                `;
-                
-                // 장바구니 담기 버튼 이벤트
-                card.querySelector('.add-to-cart').addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    const productData = JSON.parse(e.target.dataset.product);
-                    addToSampleCart(productData);
-                });
-                
-                productsList.appendChild(card);
-            });
-
-            // 상품 탭으로 자동 전환
-            document.getElementById('productTab').click();
-        }
-
-        // 샘플 장바구니 기능
-        let sampleCart = [];
-
-        function addToSampleCart(product) {
-            const existingItem = sampleCart.find(item => item.name === product.name);
-            
-            if (existingItem) {
-                existingItem.qty += 1;
-            } else {
-                sampleCart.push({
-                    name: product.name,
-                    unit_price: product.price,
-                    qty: 1
-                });
-            }
-            
-            updateSampleCart();
-            
-            // 성공 메시지
-            alert(`"${product.name}"가 장바구니에 담겼습니다!`);
-        }
-
-        function updateSampleCart() {
-            const cartItems = document.getElementById('cartItems');
-            const cartCount = document.getElementById('cartCount');
-            const subtotalAmount = document.getElementById('subtotalAmount');
-            const totalAmount = document.getElementById('totalAmount');
-            const checkoutButton = document.getElementById('checkoutButton');
-
-            if (sampleCart.length === 0) {
-                cartItems.innerHTML = '<div class="cart-empty p-4 text-center text-gray-500">장바구니가 비어있습니다.</div>';
-                cartCount.textContent = '0';
-                subtotalAmount.textContent = '0원';
-                totalAmount.textContent = '0원';
-                checkoutButton.classList.add('hidden');
-                return;
-            }
-
-            cartCount.textContent = sampleCart.length;
-            cartItems.innerHTML = '';
-
-            let subtotal = 0;
-
-            sampleCart.forEach((item, index) => {
-                const itemTotal = item.unit_price * item.qty;
-                subtotal += itemTotal;
-
-                const itemDiv = document.createElement('div');
-                itemDiv.className = 'cart-item flex items-center justify-between bg-white rounded p-2 text-sm mb-2';
-                itemDiv.innerHTML = `
-                    <div class="flex-1 mr-2">
-                        <span class="font-medium">${item.name}</span>
-                        <div class="text-xs text-gray-500">${item.unit_price.toLocaleString()}원</div>
-                    </div>
-                    <div class="quantity-controls flex items-center">
-                        <button class="quantity-btn minus-btn w-6 h-6 border rounded flex items-center justify-center" onclick="updateSampleCartQty(${index}, -1)">-</button>
-                        <span class="quantity-display mx-2">${item.qty}</span>
-                        <button class="quantity-btn plus-btn w-6 h-6 border rounded flex items-center justify-center" onclick="updateSampleCartQty(${index}, 1)">+</button>
-                    </div>
-                    <button class="remove-item ml-2 text-red-500 hover:text-red-700" onclick="removeSampleCartItem(${index})">
-                        <i class="fas fa-times"></i>
-                    </button>
-                `;
-                cartItems.appendChild(itemDiv);
-            });
-
-            subtotalAmount.textContent = subtotal.toLocaleString() + '원';
-            totalAmount.textContent = subtotal.toLocaleString() + '원';
-            checkoutButton.classList.remove('hidden');
-        }
-
-        function updateSampleCartQty(index, change) {
-            if (index >= 0 && index < sampleCart.length) {
-                sampleCart[index].qty += change;
-                if (sampleCart[index].qty <= 0) {
-                    sampleCart.splice(index, 1);
-                }
-                updateSampleCart();
-            }
-        }
-
-        function removeSampleCartItem(index) {
-            if (index >= 0 && index < sampleCart.length) {
-                sampleCart.splice(index, 1);
-                updateSampleCart();
-            }
-        }
-
+    
         // hjs 수정: DOM 로드 시 샘플 로직 제거, 실제 UI만 초기화
         document.addEventListener('DOMContentLoaded', () => {
             initializeTabs();
