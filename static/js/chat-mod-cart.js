@@ -59,10 +59,34 @@
       }catch(e){ console.error('flushCartToServer error', e); }
     },
     optimisticRecalculateAndRedrawCart(bot){
-      // hjs 수정: chat.js의 recalculateCartTotals 함수를 호출하도록 변경
-      if (bot && bot.recalculateCartTotals) {
-        bot.recalculateCartTotals();
-      }
+      // hjs 수정: 프론트에서도 즉시 금액 갱신(낙관적) 후 서버 응답으로 정합성 보정
+      if (!bot.cartState) return;
+      try {
+        const items = Array.isArray(bot.cartState.items) ? bot.cartState.items : [];
+        const subtotal = items.reduce((acc, it) => acc + (parseFloat(it.unit_price||0) * parseInt(it.qty||0, 10)), 0);
+        const m = (bot.cartState.membership || {});
+        const rate = Number((m.discount_rate != null ? m.discount_rate : (m.meta && m.meta.discount_rate)) || 0);
+        const freeThr = Number((m.free_shipping_threshold != null ? m.free_shipping_threshold : (m.meta && m.meta.free_shipping_threshold)) || 30000);
+
+        // hjs 수정: 백엔드(_calculate_totals)와 동일한 규칙으로 계산
+        const membershipDiscount = Math.floor(subtotal * rate);
+        const effectiveSubtotal = subtotal - membershipDiscount;
+        const BASE_SHIPPING = 3000;
+
+        bot.cartState.subtotal = subtotal;
+        bot.cartState.shipping_fee = BASE_SHIPPING; // 기본 3000 고정
+        bot.cartState.discounts = [];
+        if (membershipDiscount > 0) {
+          bot.cartState.discounts.push({ type: 'membership_discount', amount: membershipDiscount, description: '멤버십 할인' });
+        }
+        if (effectiveSubtotal >= freeThr) {
+          // 무료배송은 할인으로 3000을 추가하고, shipping_fee는 3000 유지 → 표시 시 0원 처리
+          bot.cartState.discounts.push({ type: 'free_shipping', amount: BASE_SHIPPING, description: '무료배송' });
+        }
+        const totalDiscount = (bot.cartState.discounts||[]).reduce((a,b)=>a+(b.amount||0),0);
+        bot.cartState.total = Math.max(0, subtotal + BASE_SHIPPING - totalDiscount);
+      } catch(_) {}
+      bot.updateCart(bot.cartState, false);
     },
     handleCartUpdate(bot, productName, action){
       if (!bot.cartState || !bot.cartState.items) return;
@@ -100,6 +124,56 @@
     updateCart(bot, cart, saveState=true){
       // hjs 수정: 렌더링은 ChatBot.updateCart를 단일 소스로 사용
       return bot.updateCart(cart, saveState);
+      if (saveState && cart) {
+        if (cart.items) { cart.items.forEach(item=>{ item.qty=parseInt(item.qty,10); item.unit_price=parseFloat(item.unit_price); }); }
+        bot.cartState=JSON.parse(JSON.stringify(cart));
+      }
+      const currentCart=bot.cartState;
+      const section=document.getElementById('cartSection');
+      const list=document.getElementById('cartItems');
+      const countBadge=document.getElementById('cartCount');
+      const subtotalEl=document.getElementById('subtotalAmount');
+      const discountEl=document.getElementById('discountAmount');
+      const totalEl=document.getElementById('totalAmount');
+      const shippingFeeEl=document.getElementById('shippingFee');
+      const checkoutButton=document.getElementById('checkoutButton');
+
+      if (!currentCart||!currentCart.items||currentCart.items.length===0){
+        section.classList.remove('hidden'); list.innerHTML=`<div class="cart-empty p-4 text-center text-gray-500">장바구니가 비어있습니다.</div>`;
+        countBadge.textContent='0'; subtotalEl.textContent='0원'; discountEl.textContent='- 0원'; totalEl.textContent='0원'; checkoutButton.classList.add('hidden'); return;
+      }
+
+      section.classList.remove('hidden'); countBadge.textContent=currentCart.items.length; list.innerHTML='';
+      currentCart.items.forEach(item=>{
+        const itemDiv=document.createElement('div');
+        itemDiv.className='cart-item flex items-center justify-between bg-white rounded p-2 text-sm';
+        itemDiv.innerHTML=`
+          <div class="flex items-center flex-1 mr-2">
+            <input type="checkbox" class="cart-select mr-2" data-product-name="${UIHelpers.escapeHtml(item.name)}" />
+            <div>
+              <span class="font-medium">${UIHelpers.escapeHtml(item.name)}</span>
+              <div class="text-xs text-gray-500">${UIHelpers.formatPrice(item.unit_price)}원</div>
+            </div>
+          </div>
+          <div class="quantity-controls flex items-center">
+            <button class="quantity-btn minus-btn" data-product-name="${UIHelpers.escapeHtml(item.name)}">-</button>
+            <span class="quantity-display">${item.qty}</span>
+            <button class="quantity-btn plus-btn" data-product-name="${UIHelpers.escapeHtml(item.name)}">+</button>
+          </div>
+          <button class="remove-item ml-2" data-product-name="${UIHelpers.escapeHtml(item.name)}">
+            <i class="fas fa-times"></i>
+          </button>`;
+        list.appendChild(itemDiv);
+      });
+
+      subtotalEl.textContent=UIHelpers.formatPrice(currentCart.subtotal)+'원';
+      const discountAmount=(currentCart.discounts||[]).reduce((acc,d)=>acc+d.amount,0);
+      discountEl.textContent=`- ${UIHelpers.formatPrice(discountAmount)}원`;
+      const freeShipDiscount = (currentCart.discounts||[]).filter(d=>d.type==='free_shipping').reduce((a,b)=>a+(b.amount||0),0);
+      const displayShipping = Math.max(0, (currentCart.shipping_fee||0) - freeShipDiscount);
+      if (shippingFeeEl) shippingFeeEl.textContent=UIHelpers.formatPrice(displayShipping)+'원';
+      totalEl.textContent=UIHelpers.formatPrice(currentCart.total)+'원';
+      checkoutButton.classList.remove('hidden');
     },
     async handleCheckout(bot){
       if (!bot.cartState||!bot.cartState.items||bot.cartState.items.length===0){ alert('장바구니가 비어있습니다.'); return; }
@@ -132,35 +206,6 @@
     getSelectedCartProducts(bot){
       const nodes = Array.from(document.querySelectorAll('.cart-select:checked'));
       return nodes.map(n => n.dataset.productName).filter(Boolean);
-    },
-    getSelectedCartItems(items){
-      const selectedNames = Array.from(document.querySelectorAll('.cart-select:checked')).map(n => n.dataset.productName).filter(Boolean);
-      return items.filter(item => selectedNames.includes(item.name));
-    },
-    handleSelectAll(bot){
-      document.querySelectorAll('.cart-select').forEach(cb => { cb.checked = true; });
-      ChatCart.optimisticRecalculateAndRedrawCart(bot);
-    },
-    handleSelectNone(bot){
-      document.querySelectorAll('.cart-select').forEach(cb => { cb.checked = false; });
-      ChatCart.optimisticRecalculateAndRedrawCart(bot);
-    },
-    handleCartSelectChange(bot){
-      ChatCart.optimisticRecalculateAndRedrawCart(bot);
-    },
-    attachCheckboxListeners(bot){
-      // 모든 체크박스에 이벤트 리스너 추가
-      document.querySelectorAll('.cart-select').forEach(checkbox => {
-        checkbox.checked = true; // 기본적으로 선택된 상태
-
-        // 체크박스 변경 핸들러 추가
-        checkbox.addEventListener('change', function() {
-          ChatCart.handleCartSelectChange(bot);
-        });
-      });
-
-      // 초기 금액 계산
-      ChatCart.optimisticRecalculateAndRedrawCart(bot);
     },
     async handleRemoveSelected(bot){
       const products = ChatCart.getSelectedCartProducts(bot);

@@ -177,10 +177,46 @@ function cleanupTransition() {
     document.body.classList.remove('page-fade-out');
 }
 
-// 페이지 언로드 시 전환 효과 (뒤로가기 등)
+// 페이지 언로드 시 전환 효과 및 로그아웃 처리
 window.addEventListener('beforeunload', function() {
     if (!isTransitioning) {
         document.body.classList.add('page-fade-out');
+    }
+    
+    // 브라우저 종료/탭 닫기 시 로그아웃 beacon 호출
+    try {
+        // sendBeacon을 사용하여 비동기로 로그아웃 API 호출
+        // 브라우저가 닫히더라도 요청이 전송됩니다
+        if (navigator.sendBeacon) {
+            navigator.sendBeacon('/auth/logout-beacon', JSON.stringify({}));
+        } else {
+            // sendBeacon을 지원하지 않는 브라우저의 경우 폴백
+            fetch('/auth/logout-beacon', {
+                method: 'POST',
+                keepalive: true,
+                credentials: 'include',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({})
+            }).catch(() => {
+                // 브라우저 종료 시 에러가 발생할 수 있으므로 무시
+            });
+        }
+    } catch (error) {
+        // beforeunload 이벤트에서는 에러를 무시합니다
+        console.warn('브라우저 종료 시 로그아웃 처리 중 오류:', error);
+    }
+});
+
+// 페이지 unload 시에도 추가 처리 (일부 브라우저에서 beforeunload가 실행되지 않을 수 있음)
+window.addEventListener('unload', function() {
+    try {
+        if (navigator.sendBeacon) {
+            navigator.sendBeacon('/auth/logout-beacon', JSON.stringify({}));
+        }
+    } catch (error) {
+        // unload 이벤트에서는 에러를 무시합니다
     }
 });
 
