@@ -595,14 +595,7 @@
                     credentials: 'include'
                 });
                 if (response.ok) { 
-                    const u = JSON.parse(localStorage.getItem('user_info')||'{}');
-                    const uid = u.user_id || '';
                     localStorage.removeItem('access_token');
-                    if (uid){
-                      localStorage.removeItem(`chat_messages_${uid}`);
-                      localStorage.removeItem(`chat_session_${uid}`);
-                      localStorage.removeItem(`chat_pending_message_${uid}`);
-                    }
                     localStorage.removeItem('user_info');
                     window.location.href = '/'; 
                 }
