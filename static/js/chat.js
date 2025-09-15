@@ -111,6 +111,14 @@ class ChatBot {
     if (micBtn) micBtn.addEventListener('click', () => { if (window.ChatVoice) ChatVoice.toggleVoiceRecording(this); });
     if (cancelBtn) cancelBtn.addEventListener('click', () => { if (window.ChatVoice) ChatVoice.cancelVoiceRecording(this); });
 
+    // 상담사 연결 버튼 (headset 아이콘이 있는 버튼) - 이벤트 위임 사용
+    document.addEventListener('click', (e) => {
+      const headsetIcon = e.target.closest('i.fas.fa-headset');
+      if (headsetIcon && headsetIcon.parentElement?.classList.contains('input-btn')) {
+        this.handleConsultantConnect();
+      }
+    });
+
     // hjs 수정: 주문 선택 버튼(동적) 클릭 위임 — 래퍼 제거, 모듈 직접 호출
     document.addEventListener('click', (e) => { if (window.ChatCS) return ChatCS.handleOrderSelectClick(this, e); });
     // hjs 수정: 주문 목록 '더보기' 버튼 처리
@@ -1049,6 +1057,14 @@ renderEvidenceResultBubble(data, ctx){
   `;
 
     this.addMessage(html, 'bot');
+  }
+
+    // 상담사 연결 버튼 클릭 처리
+  handleConsultantConnect() {
+    if (window.ChatCS && typeof ChatCS.createWaitingMessage === 'function') {
+      const waitingMessage = ChatCS.createWaitingMessage();
+      this.addMessage(waitingMessage, 'bot');
+    }
   }
 }
 

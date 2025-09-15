@@ -189,7 +189,8 @@ class ProductSearchEngine:
             return result
 
         logger.warning("Text2SQL 및 RAG 검색 모두 실패")
-        return {"success": False, "candidates": [], "method": "failed", "error": "검색 결과가 없습니다."}
+        # return {"success": False, "candidates": [], "method": "failed", "error": "검색 결과가 없습니다."}
+        return {"success": False, "candidates": [], "method": "failed", "error": "오늘은 해당 상품이 준비되지 않았어요. 다른 상품을 이용해주세요."}
     
     def _generate_sql(self, query: str, slots: Dict[str, Any]) -> Optional[str]:
         if not openai_client:

@@ -2,6 +2,14 @@
 (function(global){
   'use strict';
   const ChatCS = {
+
+    // 상담사 연결 대기시간 메시지 생성 추가
+    createWaitingMessage(){
+      const count = Math.floor(Math.random() * 15);
+      const min = count * 3;
+      return `현재 고객님 앞에는 ${count}명이 대기 중입니다. 예상 대기 시간은 약 ${min}분입니다. 잠시만 기다려 주세요.`;
+    },
+    
     updateCS(bot, cs){
       if (!cs || !Array.isArray(cs.orders) || cs.orders.length === 0) return;
       const isDelivery = !!cs.always_show || cs.category === '배송' || cs.list_type === 'delivery';
