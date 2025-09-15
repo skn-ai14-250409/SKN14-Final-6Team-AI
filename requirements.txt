@@ -21,7 +21,7 @@ pinecone==7.3.0
 
 # 외부 API
 tavily-python==0.3.3
-requests==2.31.0
+requests
 
 # 데이터 처리
 pandas==2.1.4
@@ -46,6 +46,7 @@ pydantic
 python-dateutil==2.8.2
 pillow==10.1.0
 
+scikit-learn
 mysql-connector-python
 pydantic[email]
 aiohttp

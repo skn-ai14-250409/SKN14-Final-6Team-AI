@@ -96,6 +96,23 @@ def analyze_attachments(attachments: List[str]) -> Optional[Dict[str, Any]]:
         return None
     try:
         image_path = attachments[0]
+        # hjs 수정: 업로드 확장자에 따른 MIME 설정(jpg 포함) 및 사전 검증
+        import os
+        ext = os.path.splitext(image_path)[1].lower().lstrip('.')
+        mime_map = {
+            'jpg': 'image/jpeg',
+            'jpeg': 'image/jpeg',
+            'png': 'image/png',
+            'gif': 'image/gif',
+            'webp': 'image/webp',
+        }
+        if ext not in mime_map:
+            logger.error("Vision API 분석 실패: unsupported file type '%s'", ext)
+            return {
+                "error": "unsupported_type",
+                "message": "해당 파일은 지원되지 않는 파일입니다. 지원되는 파일로 업로드를 진행해주세요.",
+                "supported_types": ["png", "jpg", "jpeg", "gif", "webp"],
+            }
         with open(image_path, "rb") as f:
             encoded_image = base64.b64encode(f.read()).decode("utf-8")
         system_prompt = (
@@ -125,7 +142,8 @@ def analyze_attachments(attachments: List[str]) -> Optional[Dict[str, Any]]:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": [
                     {"type": "text", "text": user_text},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encoded_image}"}},
+                    # hjs 수정: 실제 MIME으로 전달(jpg 포함)
+                    {"type": "image_url", "image_url": {"url": f"data:{mime_map[ext]};base64,{encoded_image}"}},
                 ]},
             ],
             temperature=0.1,

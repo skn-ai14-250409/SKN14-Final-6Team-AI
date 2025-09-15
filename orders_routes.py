@@ -10,6 +10,10 @@ class HistoryRequest(BaseModel):
     user_id: str
     limit: Optional[int] = 20
 
+class ChatHistoryRequest(BaseModel):
+    user_id: str
+    limit: Optional[int] = 50
+
 
 orders_router = APIRouter(prefix="/api/orders", tags=["orders"])
 
@@ -56,6 +60,42 @@ async def get_order_history(req: HistoryRequest) -> Dict[str, Any]:
             return {"orders": items, "total": len(items)}
     except Error as e:
         raise HTTPException(status_code=500, detail=f"주문 내역 조회 실패: {e}")
+    finally:
+        try:
+            if conn and conn.is_connected():
+                conn.close()
+        except Exception:
+            pass
+
+
+@orders_router.post("/chat-history")
+async def get_chat_history(req: ChatHistoryRequest) -> Dict[str, Any]:
+    """최근 채팅 메시지 내역을 반환합니다. userlog_tbl을 통해 사용자 기준으로 조회"""
+    conn = get_db_connection()
+    if not conn:
+        raise HTTPException(status_code=500, detail="DB 연결 실패")
+    try:
+        with conn.cursor(dictionary=True) as cur:
+            sql = (
+                "SELECT h.role, h.message_text, h.created_time, h.log_id "
+                "FROM history_tbl h "
+                "JOIN userlog_tbl u ON h.log_id = u.log_id "
+                "WHERE u.user_id = %s "
+                "ORDER BY h.created_time DESC LIMIT %s"
+            )
+            cur.execute(sql, (req.user_id, int(req.limit or 50)))
+            rows = cur.fetchall() or []
+            items: List[Dict[str, Any]] = []
+            for r in rows:
+                items.append({
+                    "role": r.get("role"),
+                    "text": r.get("message_text"),
+                    "time": str(r.get("created_time")),
+                    "log_id": r.get("log_id"),
+                })
+            return {"messages": items, "total": len(items)}
+    except Error as e:
+        raise HTTPException(status_code=500, detail=f"채팅 내역 조회 실패: {e}")
     finally:
         try:
             if conn and conn.is_connected():

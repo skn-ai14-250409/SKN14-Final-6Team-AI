@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 import mysql.connector
@@ -48,15 +48,29 @@ class UserProfileResponse(BaseModel):
     user: Optional[dict] = None
     message: Optional[str] = None
 
-# 현재 사용자 ID 가져오기 (임시로 하드코딩, 추후 세션에서 가져오도록 수정)
-def get_current_user_id():
-    # 실제 구현에서는 세션이나 JWT 토큰에서 사용자 ID를 가져와야 함
-    return "test_user_001"
+# 현재 사용자 ID 가져오기: 쿠키 기반(JWT > user_id 순)
+def get_current_user_id(request: Request) -> str:
+    """쿠키의 access_token(JWT)을 검증하여 사용자 ID를 추출합니다.
+    유효한 토큰이 없으면 'anonymous'를 반환합니다.
+    """
+    try:
+        token = request.cookies.get("access_token")
+        if token and token.startswith("Bearer "):
+            import jwt
+            from auth_routes import ALGORITHM as _ALG
+            from auth_routes import _runtime_secret as _sec
+            payload = jwt.decode(token[7:], _sec(), algorithms=[_ALG])
+            uid = payload.get("sub")
+            if uid:
+                return uid
+    except Exception:
+        pass
+    return "anonymous"
 
 @router.get("/get")
-async def get_user_profile():
+async def get_user_profile(request: Request):
     """사용자 개인정보 조회"""
-    user_id = get_current_user_id()
+    user_id = get_current_user_id(request)
     
     connection = None
     cursor = None
@@ -106,9 +120,9 @@ async def get_user_profile():
             connection.close()
 
 @router.post("/update")
-async def update_user_profile(profile_data: UserProfileUpdate):
+async def update_user_profile(profile_data: UserProfileUpdate, request: Request):
     """사용자 개인정보 수정"""
-    user_id = get_current_user_id()
+    user_id = get_current_user_id(request)
     
     connection = None
     cursor = None

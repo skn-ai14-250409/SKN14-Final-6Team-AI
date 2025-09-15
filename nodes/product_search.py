@@ -82,7 +82,7 @@ class ProductSearchEngine:
         self.tfidf_vectorizer = None
         self.tfidf_matrix = None
         self.db_schema = self._get_db_schema()
-        self._load_data_from_db()
+        # self._load_data_from_db()
     
     def _get_db_schema(self) -> str:
         return """
@@ -156,6 +156,9 @@ class ProductSearchEngine:
         # state에서 쿼리와 슬롯을 가져옵니다. 재작성된 텍스트를 우선 사용합니다.
         query = state.rewrite.get('text', state.query)
         slots = state.slots or {}
+
+        # hjs 수정: LLM 기반 의미 확장으로 쿼리 보강(하드코딩 매핑 제거)
+        query, slots = self._llm_expand_query(query, slots)
 
         # 1차 검색 수행
         result = None
@@ -392,19 +395,28 @@ SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN s
         return None
     
     def _validate_sql(self, sql: str) -> bool:
+        # hjs 수정: 별칭 사용(p.)까지 허용하도록 검증 강화
         sanitized_sql = re.sub(r'\s+', ' ', sql).strip()
-        # 정규화된 SQL을 대문자로 변경하여 검증을 수행합니다.
         sql_upper = sanitized_sql.upper()
-        if not sql_upper.startswith('SELECT'): return False
+
+        # 1) SELECT로 시작하는지만 허용
+        if not sql_upper.startswith('SELECT'):
+            return False
+
+        # 2) 위험 키워드 차단
         dangerous_keywords = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER', 'CREATE']
         if any(keyword in sql_upper for keyword in dangerous_keywords):
-            logger.info('sql_upper:', sql_upper)
-            logger.warning(f"위험한 SQL 키워드 감지")
+            logger.warning("위험한 SQL 키워드 감지")
             return False
-        # 이제 이 검증이 정상적으로 동작합니다.
-        if 'PRODUCT_TBL' not in sql_upper:
-            logger.warning("product_tbl이 SQL에 포함되지 않음")
+
+        # 3) 대상 테이블 포함 여부 검사: 테이블명(product_tbl) 또는 별칭 접근(p.) 허용
+        #    - LLM이 별칭만 사용하는 정상 쿼리를 허용하기 위함
+        has_table_name = 'PRODUCT_TBL' in sql_upper
+        has_alias_usage = re.search(r'\bP\.', sql_upper) is not None
+        if not (has_table_name or has_alias_usage):
+            logger.warning("product_tbl 테이블명 또는 별칭 'p.' 사용이 SQL에 포함되지 않음")
             return False
+
         return True
 
     def _execute_sql(self, sql: str) -> List[Dict[str, Any]]:
@@ -439,10 +451,113 @@ SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN s
         return self._format_candidates(filtered_candidates[:20])
     
     def _enhance_query(self, query: str, slots: Dict[str, Any]) -> str:
+        # hjs 수정: 간단한 정규화/확장 적용 후 질의 보강
+        query, slots = self._expand_terms(query, slots)
         parts = [query]
         if slots.get('category'): parts.append(slots['category'])
         if slots.get('organic'): parts.append("유기농")
-        return ' '.join(parts)
+        if slots.get('item'): parts.append(slots['item'])
+        if slots.get('product'): parts.append(slots['product'])
+        return ' '.join([str(p) for p in parts if p])
+
+    # hjs 수정: LLM으로 재료/카테고리 의미 확장(하드코딩 없는 방식)
+    def _llm_expand_query(self, query: str, slots: Dict[str, Any]) -> (str, Dict[str, Any]):
+        # hjs 수정: OpenAI 미사용 시 즉시 휴리스틱 확장으로 대체
+        if not openai_client or not query:
+            return self._expand_terms(query, slots)
+        try:
+            # hjs 수정: 의미 확장 예시 강화(달걀/계란, 간마늘/다진 마늘, 사과 품종, 소/돼지/닭 부위)
+            system_prompt = (
+                "당신은 식재료 용어 정규화 전문가입니다. 입력 질의의 핵심 재료를 대표명으로 정규화하고, 같은 부류의 대표 하위 품목 예시를 0~5개 내로 제안합니다. "
+                "출력은 JSON만 반환하세요. 키: canonical_item(대표명), expansions(관련/하위 품목 리스트). 예시: "
+                "'다진 마늘/간마늘'→ canonical_item='마늘'; '계란/달걀'→ canonical_item='달걀'; "
+                "'홍사과/청사과/홍로'→ canonical_item='사과'; '돼지고기'→ expansions=['목살','삼겹살','앞다리살','뒷다리살','항정살']; "
+                "'소고기'→ ['등심','안심','양지','우둔','목심','차돌박이']; '닭고기'→ ['닭가슴살','닭다리','닭봉','닭날개']"
+            )
+            user_prompt = json.dumps({
+                "query": query,
+                "slots": slots or {},
+                "schema_notes": "product_tbl(product,item,origin,organic,unit_price), category_tbl(item->category_id)"
+            }, ensure_ascii=False)
+            resp = openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.0,
+                response_format={"type": "json_object"}
+            )
+            data = json.loads(resp.choices[0].message.content)
+            canonical = (data.get("canonical_item") or data.get("canonical") or "").strip()
+            expansions = data.get("expansions") or []
+            # 질의 보강
+            new_q = query
+            extra_terms = []
+            if canonical:
+                extra_terms.append(canonical)
+            if isinstance(expansions, list):
+                extra_terms.extend([str(x) for x in expansions if x])
+            if extra_terms:
+                new_q = f"{query} {' '.join(extra_terms)}".strip()
+            # 슬롯 보정(있을 때만)
+            new_slots = dict(slots or {})
+            if canonical and new_slots.get('item'):
+                new_slots['item'] = canonical
+            return new_q, new_slots
+        except Exception as e:
+            logger.debug(f"LLM 의미 확장 실패: {e}")
+            return query, slots
+
+    # hjs 수정: LLM 부재/실패 시 최소한의 휴리스틱 확장(다진 마늘→마늘, 돼지고기→부위 확장)
+    def _expand_terms(self, query: str, slots: Dict[str, Any]) -> (str, Dict[str, Any]):
+        try:
+            q = (query or '')
+            s = dict(slots or {})
+            lower_q = q.lower()
+            # 다진 마늘 → 마늘
+            if '다진 마늘' in q or '다진마늘' in q or 'minced garlic' in lower_q:
+                q += ' 마늘'
+                if s.get('item') and ('마늘' not in s.get('item')):
+                    s['item'] = '마늘'
+            # 돼지고기 → 대표 부위 확장
+            if '돼지고기' in q or 'pork' in lower_q:
+                q += ' 목살 삼겹살 앞다리살 뒷다리살 항정살'
+            # 닭고기 → 대표 부위 확장
+            if '닭고기' in q or 'chicken' in lower_q:
+                q += ' 닭가슴살 닭다리 닭봉 닭날개'
+            # 소고기 → 대표 부위 확장
+            if '소고기' in q or 'beef' in lower_q:
+                q += ' 등심 안심 양지 우둔 목심 차돌박이'
+            # 대파 → 파 계열 보강
+            if '대파' in q:
+                q += ' 파 쪽파'
+                if s.get('item'): s['item'] = '파'
+            # 진간장 → 간장 계열 보강
+            if '진간장' in q:
+                q += ' 간장 양조간장'
+                if s.get('item'): s['item'] = '간장'
+            # 김치 → 대표 김치 보강
+            if '김치' in q and '김치찌개' not in q:
+                q += ' 배추김치 포기김치'
+            # 두부 → 유형 보강
+            if '두부' in q:
+                q += ' 부침두부 찌개두부 연두부'
+            # hjs 수정: 계란 ↔ 달걀 정규화
+            if '계란' in q and '달걀' not in q:
+                q += ' 달걀'
+                if s.get('item'): s['item'] = '달걀'
+            if 'egg' in lower_q and '달걀' not in q:
+                q += ' 달걀'
+            # 고춧가루 → 유사 표기 보강
+            if '고춧가루' in q:
+                q += ' 고추가루 고추 분말'
+            # 양파 → 변형 보강
+            if '다진 양파' in q or '다진양파' in q:
+                q += ' 양파'
+            return q, s
+        except Exception:
+            return query, slots
     
     def _tfidf_search(self, query: str) -> List[Dict[str, Any]]:
         query_vector = self.tfidf_vectorizer.transform([query])

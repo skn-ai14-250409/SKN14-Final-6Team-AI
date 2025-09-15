@@ -33,6 +33,17 @@
       const file = e.target.files && e.target.files[0];
       e.target.value=''; bot.hideCustomLoading();
       if (!file || !bot.pendingEvidence) return;
+      // hjs 수정: 업로드 전 타입 검증 (png, jpg/jpeg, gif, webp)
+      try{
+        const okTypes = ['image/png','image/jpeg','image/gif','image/webp'];
+        const name = (file.name||'').toLowerCase();
+        const extOk = ['.png','.jpg','.jpeg','.gif','.webp'].some(x=>name.endsWith(x));
+        if (!(okTypes.includes(file.type) || extOk)){
+          const msg = '해당 파일은 지원되지 않는 파일입니다. 지원되는 파일로 업로드를 진행해주세요. png, jpg, jpeg, gif, webp';
+          bot.addMessage(msg, 'bot', true);
+          return;
+        }
+      }catch(_){ }
       const previewUrl = URL.createObjectURL(file);
       bot.addImageMessage(previewUrl, 'user');
       const { orderCode, product, quantity } = bot.pendingEvidence; bot.pendingEvidence = null;
@@ -47,7 +58,12 @@
         const headers={}; const csrf = getCSRFToken(); if (csrf) headers['X-CSRFToken']=csrf;
         const res = await fetch('/api/cs/evidence',{ method:'POST', body:form, headers, credentials:'include' });
         const data = await res.json();
-        bot.renderEvidenceResultBubble(data, { orderCode, product });
+        // hjs 수정: 서버에서 지원되지 않는 파일 메시지를 내려준 경우 사용자에게 안내만 표시
+        if (data && data.cs && data.cs.message && !data.cs.ticket){
+          bot.addMessage(String(data.cs.message), 'bot', true);
+        } else {
+          bot.renderEvidenceResultBubble(data, { orderCode, product });
+        }
       }catch(err){ console.error(err); bot.addMessage('이미지 업로드/분석 중 오류가 발생했어요.','bot',true); }
       finally{ bot.hideCustomLoading(); }
     };

@@ -2,48 +2,7 @@
  * 챗봇 클라이언트 JavaScript (장바구니 · 이미지 업로드 · 음성녹음/취소 토글 + 페이지네이션 + 정렬)
  */
 
-/* ===== 쿠키/CSRF 유틸 ===== */
-function getCookie(name) {
-  const m = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
-  return m ? decodeURIComponent(m.pop()) : null;
-}
-function setCookie(name, value, days = 365) {
-  const maxAge = days * 24 * 60 * 60;
-  document.cookie = `${name}=${encodeURIComponent(value)}; path=/; max-age=${maxAge}; samesite=lax`;
-}
-function getCSRFToken() { return getCookie('csrftoken'); }
-
-/* ===== user_id 해결 (+ 영속화) ===== */
-function resolveUserId() {
-  try {
-    const raw = localStorage.getItem('user_info');
-    if (raw) {
-      const u = JSON.parse(raw);
-      if (u?.user_id) return u.user_id;
-      if (u?.id) return u.id;
-      if (u?.uid) return u.uid;
-      if (u?.email) return `user_${u.email}`;
-    }
-  } catch (_) {}
-  if (window.CURRENT_USER_ID && String(window.CURRENT_USER_ID).trim()) {
-    return String(window.CURRENT_USER_ID).trim();
-  }
-  const c = getCookie('user_id'); if (c) return c;
-  const guest = 'guest_' + Math.random().toString(36).slice(2, 10);
-  try { localStorage.setItem('user_info', JSON.stringify({ user_id: guest })); } catch (_) {}
-  setCookie('user_id', guest, 365);
-  return guest;
-}
-
-/* ===== SpeechRecognition 지원 체크 ===== */
-function getSpeechRecognitionCtor() {
-  return window.SpeechRecognition || window.webkitSpeechRecognition || null;
-}
-
-/* ====== HTML 여부 탐지(텍스트/HTML 구분) ====== */
-function isLikelyHtml(str = "") {
-  return /<\/?[a-z][\s\S]*>/i.test(String(str).trim());
-}
+// hjs 수정: 공용 유틸은 static/js/utils.js로 이관 (getCookie, setCookie, getCSRFToken, resolveUserId, getSpeechRecognitionCtor, isLikelyHtml)
 
 class ChatBot {
   constructor() {
@@ -83,14 +42,34 @@ class ChatBot {
     
     // 배송문의 상태 추적
     this.isCurrentlyDeliveryInquiry = false;
+    this.lastRenderedDate = null;
 
     this.init();
+    // hjs 수정: 전역 참조 저장(툴바 등 외부 UI에서 접근)
+    try { window._chatbot = this; window.chatbot = this; } catch(_) {}
   }
 
   init() {
     this.bindEvents();
+    // hjs 수정: CS 증빙 로직을 cs_evidence.js로 완전 이전 — setup 호출
+    try { if (window.CSEvidence && typeof CSEvidence.setup === 'function') CSEvidence.setup(this); } catch (_) {}
     this.updateSessionInfo();
-    this.initializeCart();
+      if (window.ChatCart) ChatCart.initializeCart(this);
+    // hjs 수정: 새 브라우저/탭 세션에서 이전 채팅 내역 초기화
+    try {
+      const bootKey = `chat_session_boot_${this.userId}`;
+      if (!sessionStorage.getItem(bootKey)) {
+        localStorage.removeItem(`chat_messages_${this.userId}`);
+        localStorage.removeItem(`chat_session_${this.userId}`);
+        localStorage.removeItem(`chat_pending_message_${this.userId}`);
+        sessionStorage.setItem(bootKey, '1');
+      }
+    } catch (_) {}
+    // 이전 채팅 복원
+    this.restoreChatState();
+    // hjs 수정: 즐겨찾기 목록 렌더
+    try { this.renderFavorites(); } catch(_) {}
+    this.hideCustomLoading()
   }
 
   bindEvents() {
@@ -122,32 +101,46 @@ class ChatBot {
       if (button.classList.contains('plus-btn')) action = 'increment';
       else if (button.classList.contains('minus-btn')) action = 'decrement';
       else if (button.classList.contains('remove-item')) action = 'remove';
-      if (action) this.handleCartUpdate(productName, action);
+      if (action && window.ChatCart) ChatCart.handleCartUpdate(this, productName, action);
     });
 
-    document.getElementById('checkoutButton').addEventListener('click', () => this.handleCheckout());
-
-    // 카메라(일반 업로드)
-    const camBtn = document.getElementById('cameraButton');
-    if (camBtn) camBtn.addEventListener('click', () => document.getElementById('imageInput').click());
-    const imgInput = document.getElementById('imageInput');
-    if (imgInput) imgInput.addEventListener('change', (e) => this.handleImageSelected(e));
+    document.getElementById('checkoutButton').addEventListener('click', () => { if (window.ChatCart) ChatCart.handleCheckout(this); });
 
     // 마이크, 취소
     const micBtn = document.getElementById('voiceInput');
     const cancelBtn = document.getElementById('voiceCancel');
-    if (micBtn) micBtn.addEventListener('click', () => this.toggleVoiceRecording());
-    if (cancelBtn) cancelBtn.addEventListener('click', () => this.cancelVoiceRecording());
+    if (micBtn) micBtn.addEventListener('click', () => { if (window.ChatVoice) ChatVoice.toggleVoiceRecording(this); });
+    if (cancelBtn) cancelBtn.addEventListener('click', () => { if (window.ChatVoice) ChatVoice.cancelVoiceRecording(this); });
 
-    // 주문 선택 버튼(동적) 클릭 위임
-    document.addEventListener('click', (e) => this.handleOrderSelectClick(e));
+    // hjs 수정: 주문 선택 버튼(동적) 클릭 위임 — 래퍼 제거, 모듈 직접 호출
+    document.addEventListener('click', (e) => { if (window.ChatCS) return ChatCS.handleOrderSelectClick(this, e); });
+    // hjs 수정: 주문 목록 '더보기' 버튼 처리
+    document.addEventListener('click', (e) => { if (window.ChatCS) return ChatCS.handleShowMoreOrders(this, e); });
 
-    // 주문 상세의 "상품 행 클릭" 및 "증빙 업로드 버튼" 클릭
-    document.addEventListener('click', (e) => this.handleOrderItemClick(e));
-    document.addEventListener('click', (e) => this.handleEvidenceUploadButtonClick(e));
+    // 주문 상세의 "상품 행 클릭" 및 "증빙 업로드 버튼" 클릭 — 래퍼 제거, 모듈 직접 호출 (hjs 수정)
+    document.addEventListener('click', (e) => { if (window.ChatCS) return ChatCS.handleOrderItemClick(this, e); });
+    document.addEventListener('click', (e) => { if (window.ChatCS) return ChatCS.handleEvidenceUploadButtonClick(this, e); });
 
     // 긴 메시지 더보기/접기 토글
     document.addEventListener('click', (e) => this.handleClampToggle(e));
+
+    // hjs 수정: 즐겨찾기 탭 - 삭제/재료추천 버튼 위임(래퍼 제거, 모듈 직접 호출)
+    document.addEventListener('click', (e) => {
+      const favRemove = e.target.closest('.chat-fav-remove');
+      if (favRemove){
+        const url = favRemove.getAttribute('data-url')||'';
+        const title = favRemove.getAttribute('data-title')||'';
+        if (url) this.removeFavoriteRecipe({ url, title });
+        return;
+      }
+      const favIng = e.target.closest('.chat-fav-ingredients');
+      if (favIng){
+        const title = favIng.getAttribute('data-title')||'';
+        const desc = favIng.getAttribute('data-desc')||'';
+        const url = favIng.getAttribute('data-url')||'';
+        if (window.ChatRecipes) return ChatRecipes.requestRecipeIngredients(this, { title, description: desc, url });
+      }
+    });
   }
 
   // ✅ 정렬 함수들 추가
@@ -190,9 +183,8 @@ class ChatBot {
 
   // ✅ 정렬 옵션 변경 핸들러
   handleProductSortChange(newSortBy) {
-    this.productSortBy = newSortBy;
-    this.productPage = 0; // 정렬이 바뀌면 첫 페이지로
-    this._renderProductPage();
+    // hjs 수정: 완전 위임 — ChatProducts.handleProductSortChange 사용
+    if (window.ChatProducts) return ChatProducts.handleProductSortChange(this, newSortBy);
   }
 
   handleIngredientSortChange(newSortBy) {
@@ -334,507 +326,93 @@ class ChatBot {
 
   // ✅ 상품 렌더링 (정렬 기능 추가)
   _renderProductPage() {
-    // 정렬 적용
-    const sortedProducts = this.sortProducts(this.productCandidates, this.productSortBy);
-    
-    // 정렬 셀렉트박스 설정
-    const sortConfig = this.createSortSelectBox(
-      this.productSortBy, 
-      (newSortBy) => this.handleProductSortChange(newSortBy),
-      'productSortSelect'
-    );
-
-    this._renderPaginatedList({
-      listElement: document.getElementById('productsList'),
-      dataArray: sortedProducts,
-      currentPage: this.productPage,
-      itemsPerPage: this.PRODUCTS_PER_PAGE,
-      sortConfig: sortConfig, // 정렬 설정 추가
-      renderItemCallback: (product, index) => {
-        const card = document.createElement('div');
-        card.className = 'product-card bg-white rounded-lg p-3 border hover:shadow-md transition';
-        card.innerHTML = `
-          <div class="flex items-center justify-between">
-            <div class="flex-1">
-              <h4 class="font-medium text-sm text-gray-800">${this.escapeHtml(product.name)}</h4>
-              <p class="text-xs text-gray-500 mt-1">${this.escapeHtml(product.origin || '원산지 정보 없음')}</p>
-              <p class="text-green-600 font-bold text-sm mt-1">${this.formatPrice(product.price)}원</p>
-            </div>
-            <button class="add-to-cart bg-green-100 text-green-600 px-2 py-1 rounded text-xs hover:bg-green-200" data-product-name="${this.escapeHtml(product.name)}">담기</button>
-          </div>`;
-
-        card.querySelector('.add-to-cart').addEventListener('click', (e) => {
-          e.stopPropagation();
-          const productName = e.target.dataset.productName;
-
-          const products = [{
-            name: productName,
-            price: product.price || 0,
-            origin: product.origin || '',
-            organic: product.organic || false
-          }];
-
-          this.addMessage(`${productName} 담아줘`, 'user');
-          this.sendBulkAddRequest(products);
-        });
-        return card;
-      },
-      onPageChange: (newPage) => {
-        this.productPage = newPage;
-        this._renderProductPage();
-      }
-    });
+    // hjs 수정: 완전 위임 — ChatProducts._renderProductPage 사용
+    if (window.ChatProducts) return ChatProducts._renderProductPage(this);
   }
 
-  // ✅ 재료 렌더링 (정렬 기능 추가)
-  _renderIngredientsPage() {
-    // 정렬 적용
-    const sortedIngredients = this.sortIngredients(this.ingredientCandidates, this.ingredientSortBy);
-    
-    // 정렬 셀렉트박스 설정
-    const sortConfig = this.createSortSelectBox(
-      this.ingredientSortBy, 
-      (newSortBy) => this.handleIngredientSortChange(newSortBy),
-      'ingredientSortSelect'
-    );
-
-    this._renderPaginatedList({
-      listElement: document.getElementById('recipesList'),
-      dataArray: sortedIngredients,
-      currentPage: this.ingredientPage,
-      itemsPerPage: this.INGREDIENTS_PER_PAGE,
-      sortConfig: sortConfig, // 정렬 설정 추가
-      renderItemCallback: (ingredient, globalIndex) => {
-        const card = document.createElement('div');
-        card.className = 'ingredient-card bg-white rounded-lg p-3 border hover:shadow-md transition cursor-pointer mb-2';
-        card.innerHTML = `
-          <div class="flex items-center justify-between">
-            <div class="flex items-center flex-1">
-              <input type="checkbox" 
-                    class="ingredient-checkbox mr-3" 
-                    id="ingredient-${globalIndex}" 
-                    data-product-name="${this.escapeHtml(ingredient.name)}"
-                    data-product-price="${ingredient.price}"
-                    data-product-origin="${this.escapeHtml(ingredient.origin || '원산지 정보 없음')}"
-                    data-product-organic="${ingredient.organic}">
-              <div class="flex-1">
-                <h4 class="font-medium text-sm text-gray-800">${this.escapeHtml(ingredient.name)}</h4>
-                <p class="text-xs text-gray-500 mt-1">${this.escapeHtml(ingredient.origin || '원산지 정보 없음')}</p>
-                <div class="flex items-center mt-1">
-                  <p class="text-green-600 font-bold text-sm">${this.formatPrice(ingredient.price)}원</p>
-                  ${ingredient.organic ? '<span class="ml-2 px-1 py-0.5 bg-green-100 text-green-700 text-xs rounded">유기농</span>' : ''}
-                </div>
-              </div>
-            </div>
-            <button class="add-to-cart bg-yellow-500 text-white px-3 py-1 rounded text-xs hover:bg-yellow-600 transition" data-product-name="${this.escapeHtml(ingredient.name)}">
-              <i class="fas fa-shopping-basket mr-1"></i>담기
-            </button>
-          </div>`;
-
-        card.querySelector('.add-to-cart').addEventListener('click', (e) => {
-          e.stopPropagation();
-            
-          // 'ingredient' 객체의 전체 정보를 사용하여 products 배열을 생성합니다.
-          const products = [{
-            name:    ingredient.name,
-            price:   ingredient.price || 0,
-            origin:  ingredient.origin || '',
-            organic: ingredient.organic || false
-          }];
-        
-          // 사용자에게 채팅창에 피드백을 보여줍니다.
-          this.addMessage(`${ingredient.name} 담아줘`, 'user');
-        
-          // 챗봇 메시지 전송 대신, 장바구니 API를 직접 호출합니다.
-          this.sendBulkAddRequest(products);
-        });
-        return card;
-      },
-      onPageChange: (newPage) => {
-        this.ingredientPage = newPage;
-        this._renderIngredientsPage();
-      },
-      bulkActionConfig: {
-        html: `
-          <div class="flex items-center justify-between">
-            <div class="flex items-center">
-              <input type="checkbox" id="select-all-ingredients" class="mr-2">
-              <label for="select-all-ingredients" class="text-sm text-gray-700">현재 페이지 전체 선택</label>
-            </div>
-            <button id="bulk-add-to-cart" class="bg-green-600 text-white px-4 py-2 rounded text-sm hover:bg-green-700 transition">
-              <i class="fas fa-shopping-basket mr-1"></i>선택한 재료 모두 담기
-            </button>
-          </div>`,
-        events: [
-          {
-            selector: '#select-all-ingredients',
-            type: 'change',
-            handler: (e) => {
-              const checkboxes = document.querySelectorAll('.ingredient-checkbox');
-              checkboxes.forEach(checkbox => checkbox.checked = e.target.checked);
-            }
-          },
-          {
-            selector: '#bulk-add-to-cart',
-            type: 'click',
-            handler: () => this.handleBulkAddToCart()
-          }
-        ]
-      }
-    });
-  }
-
-  /* ========== 음성: UI 상태 ========== */
-  startVoiceUI() {
-    this.isRecording = true;
-    this.canceled = false;
-    const micBtn = document.getElementById('voiceInput');
-    const cancelBtn = document.getElementById('voiceCancel');
-    const input = document.getElementById('messageInput');
-    if (micBtn) {
-      micBtn.classList.add('recording');
-      micBtn.innerHTML = '<i class="fas fa-stop"></i>';
-    }
-    if (cancelBtn) cancelBtn.classList.remove('hidden');
-    if (input) input.classList.add('recording');
-  }
-  stopVoiceUI() {
-    this.isRecording = false;
-    const micBtn = document.getElementById('voiceInput');
-    const cancelBtn = document.getElementById('voiceCancel');
-    const input = document.getElementById('messageInput');
-    if (micBtn) {
-      micBtn.classList.remove('recording');
-      micBtn.innerHTML = '<i class="fas fa-microphone"></i>';
-    }
-    if (cancelBtn) cancelBtn.classList.add('hidden');
-    if (input) input.classList.remove('recording');
-  }
+  /* hjs 수정: 음성 UI 제어는 ChatVoice로 일원화(중복 정의 제거) */
 
   /* ========== 음성: 시작/정지/취소 ========== */
-  async toggleVoiceRecording() {
-    if (!this.isRecording) {
-      this.startVoiceUI();
-      const Recog = getSpeechRecognitionCtor();
-      if (Recog) {
-        this.startSpeechRecognition(Recog);
-      } else {
-        await this.startMediaRecorder();
-      }
-    } else {
-      if (this.recognition) this.recognition.stop();
-      if (this.mediaRecorder) this.mediaRecorder.stop();
-    }
-  }
-
-  // 취소 버튼
-  cancelVoiceRecording() {
-    if (!this.isRecording) return;
-
-    this.canceled = true;
-    this.stopVoiceUI();
-
-    if (this.recognition) {
-      try { this.recognition.abort(); } catch (_) {}
-      try { this.recognition.stop(); } catch (_) {}
-      this.recognition = null;
-    }
-
-    if (this.mediaRecorder) {
-      try { if (this.mediaRecorder.state !== 'inactive') this.mediaRecorder.stop(); } catch (_) {}
-      this.mediaRecorder = null;
-    }
-    if (this.mediaStream) {
-      try { this.mediaStream.getTracks().forEach(t => t.stop()); } catch (_) {}
-      this.mediaStream = null;
-    }
-
-    this.audioChunks = [];
-    this.lastTranscript = '';
-  }
-
-  /* --- Web Speech --- */
-  startSpeechRecognition(Recog) {
-    try {
-      this.lastTranscript = '';
-      const r = new Recog();
-      this.recognition = r;
-      r.lang = 'ko-KR';
-      r.continuous = true;
-      r.interimResults = true;
-
-      r.onresult = (event) => {
-        let finalText = '';
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const res = event.results[i];
-          if (res.isFinal) finalText += res[0].transcript;
-        }
-        if (finalText) this.lastTranscript += finalText;
-      };
-
-      r.onerror = (e) => {
-        const isAbort =
-          this.canceled ||
-          (e && (e.error === 'aborted' || e.name === 'AbortError'));
-
-        if (!isAbort) {
-          console.error('SpeechRecognition error:', e);
-          this.addMessage('음성 인식 중 오류가 발생했어요.', 'bot', true);
-        }
-        this.recognition = null;
-        this.stopVoiceUI();
-      };
-
-      r.onend = () => {
-        const text = (this.lastTranscript || '').trim();
-        this.stopVoiceUI();
-
-        if (!this.canceled && text) {
-          this.addMessage(text, 'user');
-          this.sendMessage(text, false);
-        }
-        this.recognition = null;
-      };
-
-      r.start();
-    } catch (err) {
-      console.error(err);
-      this.addMessage('브라우저 음성인식을 사용할 수 없어요.', 'bot', true);
-      this.stopVoiceUI();
-    }
-  }
-
-  /* --- MediaRecorder --- */
-  async startMediaRecorder() {
-    try {
-      this.audioChunks = [];
-      this.mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mr = new MediaRecorder(this.mediaStream);
-      this.mediaRecorder = mr;
-
-      mr.ondataavailable = (e) => e.data && this.audioChunks.push(e.data);
-
-      mr.onstop = async () => {
-        this.stopVoiceUI();
-
-        const finalize = () => {
-          if (this.mediaStream) {
-            this.mediaStream.getTracks().forEach(t => t.stop());
-            this.mediaStream = null;
-          }
-          this.mediaRecorder = null;
-        };
-
-        try {
-          if (this.canceled) { finalize(); return; }
-
-          const blob = new Blob(this.audioChunks, { type: 'audio/webm' });
-          const form = new FormData();
-          form.append('audio', blob, 'voice.webm');
-          form.append('user_id', this.userId);
-          form.append('session_id', this.sessionId);
-
-          const headers = {};
-          const csrf = getCSRFToken(); if (csrf) headers['X-CSRFToken'] = csrf;
-
-          const res = await fetch('/api/upload/audio', {
-            method: 'POST',
-            body: form,
-            headers,
-            credentials: 'include'
-          });
-          const data = await res.json();
-
-          const text = (data && data.text || '').trim();
-          if (text) {
-            this.addMessage(text, 'user');
-            this.sendMessage(text, false);
-          } else if (data && data.url) {
-            const hiddenMsg = `__AUDIO_UPLOADED__ ${data.url}`;
-            this.sendMessage(hiddenMsg, true);
-            this.addMessage('음성 전사를 받을 수 없었어요.', 'bot');
-          }
-        } catch (e) {
-          console.error(e);
-          this.addMessage('오디오 업로드 중 오류가 발생했어요.', 'bot', true);
-        } finally {
-          finalize();
-        }
-      };
-
-      mr.start();
-    } catch (err) {
-      console.error(err);
-      this.addMessage('마이크 접근 권한이 없거나 사용할 수 없어요.', 'bot', true);
-      this.stopVoiceUI();
-    }
-  }
+  // hjs 수정: 음성 제어는 ChatVoice 모듈 사용(메서드 삭제)
 
   /* ====== 장바구니/채팅 ====== */
-  handleCartUpdate(productName, action) {
-    if (!this.cartState || !this.cartState.items) return;
-    const idx = this.cartState.items.findIndex(i => i.name === productName);
-    if (idx === -1) return;
-    switch (action) {
-      case 'increment': this.cartState.items[idx].qty += 1; break;
-      case 'decrement': this.cartState.items[idx].qty -= 1; break;
-      case 'remove':    this.cartState.items[idx].qty  = 0; break;
-    }
-    const finalQty = this.cartState.items[idx]?.qty ?? 0;
-    if (finalQty <= 0) this.cartState.items.splice(idx, 1);
-    this.recalculateAndRedrawCart();
-    clearTimeout(this.debounceTimer);
-    this.pendingCartUpdate[productName] = Math.max(finalQty, 0);
-    this.debounceTimer = setTimeout(() => this.syncPendingCartUpdates(), 5000);
-  }
+  // hjs 수정: 장바구니 제어는 ChatCart 모듈 사용(메서드 삭제)
 
-  syncPendingCartUpdates() {
-    const updates = this.pendingCartUpdate; this.pendingCartUpdate = {};
-    if (Object.keys(updates).length === 0) return;
-    for (const productName in updates) {
-      const quantity = updates[productName];
-      fetch('/api/cart/update', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(getCSRFToken() ? { 'X-CSRFToken': getCSRFToken() } : {})
-        },
-        body: JSON.stringify({ user_id: this.userId, product_name: productName, quantity }),
-        credentials: 'include'
-      })
-      .then(r => r.json())
-      .then(data => { if (!data.error) this.updateCart(data.cart, true); })
-      .catch(err => console.error('Cart sync fetch error:', err));
-    }
-  }
-
-  async initializeCart() {
-    try {
-      const url = new URL('/api/cart/get', window.location.origin);
-      url.searchParams.set('t', Date.now().toString());
-      url.searchParams.set('user_id', this.userId);
-      let res = await fetch(url.toString(), { method: 'GET', headers: { 'Accept':'application/json' }, credentials: 'include' });
-      if (!res.ok && res.status !== 200) {
-        res = await fetch('/api/cart/get', {
-          method: 'POST',
-          headers: { 'Content-Type':'application/json', ...(getCSRFToken() ? { 'X-CSRFToken': getCSRFToken() } : {}) },
-          body: JSON.stringify({ user_id: this.userId }),
-          credentials: 'include'
-        });
-      }
-      if (res.ok) {
-        const data = await res.json();
-        if (data && data.cart) { this.updateCart(data.cart, true); return; }
-      }
-    } catch (err) { console.error('Cart initialization error:', err); }
-    this.updateCart(null, true);
-  }
-
-  async ensureCartLoaded() {
-    if (this.cartState && Array.isArray(this.cartState.items)) return true;
-    try {
-      const res = await fetch('/api/cart/get', {
-        method: 'POST',
-        headers: { 'Content-Type':'application/json', ...(getCSRFToken() ? { 'X-CSRFToken': getCSRFToken() } : {}) },
-        body: JSON.stringify({ user_id: this.userId }),
-        credentials: 'include'
-      });
-      const data = await res.json();
-      if (data?.cart) { this.updateCart(data.cart, true); return true; }
-    } catch (e) { console.error('ensureCartLoaded error:', e); }
-    return false;
-  }
-
-  // recalculateAndRedrawCart() {
-  //   if (!this.cartState) return;
-  //   this.cartState.subtotal = this.cartState.items.reduce((acc, it) => acc + (parseFloat(it.unit_price) * it.qty), 0);
-  //   let discountAmount = 0;
-  //   if (this.cartState.subtotal >= 30000) {
-  //     discountAmount = 3000;
-  //     this.cartState.discounts = [{ type:'free_shipping', amount:3000, description:'무료배송' }];
-  //   } else { this.cartState.discounts = []; }
-  //   this.cartState.total = this.cartState.subtotal - discountAmount;
-  //   this.updateCart(this.cartState, false);
-  // }
-
-  recalculateAndRedrawCart() {
-    if (!this.cartState) return;
-
-    // 1) 상품 합계
-    const subtotal = this.cartState.items.reduce(
-      (acc, it) => acc + (parseFloat(it.unit_price) * it.qty), 0
-    );
-
-    // 2) 멤버십 정보(없으면 기본값)
-    const m = (this.cartState.membership || {});
-    const rate = Number(m.discount_rate ?? 0);                // 예: 0.05
-    const freeThr = Number(m.free_shipping_threshold ?? 30000);
-
-    // 3) 할인/배송비 계산 (✅ 할인 후 금액으로 무료배송 판단)
-    const membershipDiscount = Math.floor(subtotal * rate);
-    const effectiveSubtotal  = subtotal - membershipDiscount;
-    const shippingFee        = (effectiveSubtotal >= freeThr) ? 0 : 3000;
-
-    // 4) 상태 반영
-    this.cartState.subtotal  = subtotal;
-    this.cartState.shipping_fee = shippingFee;
-    this.cartState.discounts = [];
-    if (membershipDiscount > 0) {
-      this.cartState.discounts.push({
-        type: 'membership_discount',
-        amount: membershipDiscount,
-        description: `멤버십 ${Math.round(rate*100)}% 할인`
-      });
-    }
-    // 총금액 = (할인 후 상품금액) + 배송비
-    this.cartState.total = Math.max(0, effectiveSubtotal + shippingFee);
-
-    // UI 갱신
-    this.updateCart(this.cartState, false);
-  }
-
-  async sendMessage(messageOverride = null, silent = false) {
+  // hjs 수정: 구형 브라우저 호환(기본 파라미터/스프레드 제거) + Promise 체인에 finally 사용
+  sendMessage(messageOverride, silent) {
+    if (typeof messageOverride === 'undefined') messageOverride = null;
+    if (typeof silent === 'undefined') silent = false;
     const input = document.getElementById('messageInput');
-    const message = messageOverride || input.value.trim();
-    if (!message) return null;
-    if (!silent && !messageOverride) this.addMessage(message, 'user');
-    input.value = '';
-    this.showSmartLoading(message);
+    const message = messageOverride || (input ? input.value.trim() : '');
+    if (!message) return Promise.resolve(null);
+    // hjs 수정: 결제/주문 의도 감지 시, 서버 수량과 즉시 동기화 후 전송
     try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type':'application/json', ...(getCSRFToken() ? { 'X-CSRFToken': getCSRFToken() } : {}) },
-        body: JSON.stringify({ message, user_id: this.userId, session_id: this.sessionId }),
-        credentials: 'include'
-      });
-      const data = await response.json();
-      if (response.ok) {
-        this.sessionId = data.session_id;
-        const hasOrderPicker = !!(data.cs && Array.isArray(data.cs.orders) && data.cs.orders.length);
-        if (!silent && data.response && !hasOrderPicker) {
-          this.addMessage(data.response, 'bot');
+      const m = (message||'').toLowerCase();
+      if ((m.includes('결제') || m.includes('주문') || m.includes('checkout')) && window.ChatCart && typeof ChatCart.flushCartToServer === 'function') {
+        if (this.pendingCartUpdate && Object.keys(this.pendingCartUpdate).length > 0) { clearTimeout(this.debounceTimer); }
+        // flush는 빠르게 수행(대기), 실패하더라도 본문 전송은 지속
+        ChatCart.flushCartToServer(this);
+      }
+    } catch(_) {}
+    if (!silent && !messageOverride) this.addMessage(message, 'user');
+    if (input) input.value = '';
+    if (!silent) this.showSmartLoading(message);
+    var headers = { 'Content-Type':'application/json' };
+    var csrf = getCSRFToken && getCSRFToken(); if (csrf) headers['X-CSRFToken'] = csrf;
+    return fetch('/api/chat', {
+      method: 'POST', headers: headers, credentials: 'include',
+      body: JSON.stringify({ message: message, user_id: this.userId, session_id: this.sessionId })
+    })
+    .then((response) => response.json().then((data)=>({response,data})))
+    .then(async ({response, data}) => {
+      if (!response.ok) throw new Error(data.detail || 'API 호출 실패');
+      this.sessionId = data.session_id;
+      const hasOrderPicker = !!(data.cs && Array.isArray(data.cs.orders) && data.cs.orders.length);
+      if (!silent && data.response && !hasOrderPicker) this.addMessage(data.response, 'bot');
+      this.updateSidebar(data);
+      try {
+        if (data && data.order && (data.order.status === 'confirmed' || data.order.order_id)) {
+          if (!data.cart || (data.cart.items && data.cart.items.length > 0)) {
+            if (window.ChatCart) { const p = ChatCart.initializeCart(this); if (p && typeof p.then === 'function') await p; }
+          }
         }
-        this.updateSidebar(data);
-        this.updateSessionInfo(data.metadata);
-        return data;
-      } else { throw new Error(data.detail || 'API 호출 실패'); }
-    } catch (error) {
+      } catch(_) {}
+      this.updateSessionInfo(data.metadata);
+      return data;
+    })
+    .catch((error)=>{
       console.error('Error:', error);
       if (!silent) this.addMessage('죄송합니다. 일시적인 오류가 발생했습니다.', 'bot', true);
       return null;
-    } finally { this.hideCustomLoading(); }
+    })
+    .finally(()=>{ this.hideCustomLoading(); });
   }
 
   /* ===== 메시지 렌더링(개선: HTML은 보존, 텍스트만 줄바꿈 변환 + 길이 클램프) ===== */
   formatBotMessage(content) {
     if (isLikelyHtml(content)) return content;
+    // Markdown 우선 렌더
+    if (window.QMarkdown && typeof window.QMarkdown.render === 'function') {
+      try { return window.QMarkdown.render(String(content||'')); } catch (_) {}
+    }
     const div = document.createElement('div');
     div.textContent = content || '';
     return div.innerHTML.replace(/\n/g, '<br>');
   }
 
-  addMessage(content, sender, isError = false) {
+  addMessage(content, sender, isError) {
+    if (typeof isError === 'undefined') isError = false;
     const messagesContainer = document.getElementById('messages');
+    // 날짜 구분선 삽입
+    const today = new Date();
+    const dstr = today.getFullYear()+ '-' + String(today.getMonth()+1).padStart(2,'0')+ '-' + String(today.getDate()).padStart(2,'0');
+    if (this.lastRenderedDate !== dstr){
+      const sep = document.createElement('div');
+      sep.className = 'text-center my-2';
+      sep.innerHTML = `<span class="inline-block text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">${dstr}</span>`;
+      messagesContainer.appendChild(sep);
+      this.lastRenderedDate = dstr;
+    }
     const messageDiv = document.createElement('div');
     messageDiv.className = 'mb-4 message-animation';
 
@@ -848,6 +426,8 @@ class ChatBot {
         </div>`;
       messagesContainer.appendChild(messageDiv);
       this.scrollToBottom();
+      // hjs 수정: 사용자 메시지도 즉시 영속화(마이페이지 이동 후 복원 문제 해결)
+      this.persistChatState();
       return;
     }
 
@@ -877,37 +457,81 @@ class ChatBot {
     }
 
     this.scrollToBottom();
+    this.persistChatState();
+  }
+
+  // hjs 수정: 좌측 즐겨찾기 섹션 렌더링(서버 연동 + 자동 업로드)
+  renderFavorites(){
+    const section = document.getElementById('favoritesSection');
+    if (!section) return;
+    const target = section.querySelector('#favoritesListInChat') || (()=>{ const d=document.createElement('div'); d.id='favoritesListInChat'; section.innerHTML=''; section.appendChild(d); return d; })();
+    const render = (items)=>{
+      if (!Array.isArray(items) || items.length===0){
+        target.innerHTML = '<div class="empty-state"><i class="fas fa-star text-gray-300 text-4xl mb-4"></i><p class="text-gray-500">저장된 레시피가 없습니다</p></div>';
+        return;
+      }
+      target.innerHTML = items.map(r=>{
+        const title = this.escapeHtml(r.title||r.recipe_title||'레시피');
+        const desc = this.escapeHtml(r.description||r.snippet||'');
+        const url = r.url||r.recipe_url||'#';
+        const cooking = this.escapeHtml(r.cooking_time||'');
+        const servings = this.escapeHtml(r.servings||'');
+        return `
+          <div class="recipe-card bg-white rounded-lg p-3 border hover:shadow-md transition cursor-pointer mb-2">
+            <div class="recipe-card-body">
+              <h4 class="font-semibold text-gray-800 mb-2">${title}</h4>
+              <p class="text-gray-600 mb-2 text-xs">${desc}</p>
+              <div class="flex items-center justify-between">
+                <div class="recipe-info flex gap-3 text-xs text-gray-500">
+                  ${cooking?`<span><i class=\"fas fa-clock mr-1\"></i>${cooking}</span>`:''}
+                  ${servings?`<span><i class=\"fas fa-user mr-1\"></i>${servings}</span>`:''}
+                </div>
+                <div class="flex items-center gap-2">
+                  <button class="chat-fav-ingredients bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-1 rounded text-xs font-medium transition" data-title="${this.escapeHtml(r.title||r.recipe_title||'')}" data-desc="${this.escapeHtml(r.description||r.snippet||'')}" data-url="${this.escapeHtml(url)}">
+                    <i class="fas fa-shopping-basket mr-1"></i>재료 추천받기
+                  </button>
+                  <button class="chat-fav-remove px-2 py-1 text-xs border rounded hover:bg-gray-50" title="즐겨찾기 삭제" data-url="${this.escapeHtml(url)}" data-title="${this.escapeHtml(r.title||r.recipe_title||'')}">
+                    <i class="fas fa-trash-alt"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>`;
+      }).join('');
+    };
+    const localItems = (()=>{ try { return JSON.parse(localStorage.getItem(this.getFavoritesKey())||'[]'); } catch(_) { return []; } })();
+    fetch(`/api/recipes/favorites?user_id=${encodeURIComponent(this.userId)}`, { credentials:'include' })
+      .then(r=>r.json()).then(async data=>{
+        const serverItems = (data && data.items) ? data.items.map(x=>({ title:x.recipe_title, url:x.recipe_url, description:x.snippet })) : [];
+        if (serverItems.length===0 && Array.isArray(localItems) && localItems.length>0){
+          try{
+            await fetch('/api/recipes/favorites/bulk-sync',{
+              method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include',
+              body: JSON.stringify({ user_id:this.userId, items: localItems.map(x=>({ user_id:this.userId, recipe_url:x.url, recipe_title:x.title, snippet:x.description||'' })) })
+            });
+            const r2 = await fetch(`/api/recipes/favorites?user_id=${encodeURIComponent(this.userId)}`, { credentials:'include' });
+            const d2 = await r2.json();
+            render((d2.items||[]).map(x=>({ title:x.recipe_title, url:x.recipe_url, description:x.snippet })));
+            return;
+          }catch(e){ console.error('favorites bulk-sync error', e); }
+        }
+        render(serverItems);
+      }).catch(()=> render(localItems));
+
+    // 이벤트 위임
+    target.addEventListener('click', (e)=>{
+      const btn = e.target.closest('.chat-fav-ingredients');
+      if (!btn) return;
+      e.stopPropagation();
+      if (window.ChatRecipes) ChatRecipes.requestRecipeIngredients(this, { title: btn.dataset.title||'', description: btn.dataset.desc||'', url: btn.dataset.url||'' });
+    });
+    // hjs 수정: 잘못된 '*/' 제거하여 이하 함수 비활성화 문제 수정
   }
 
   // 화면 폭과 유사한 폭에서 라인 수를 계산해 8줄 초과 시 접기 대상
-  needsClamp(html) {
-    const probe = document.createElement('div');
-    probe.style.cssText = 'position:absolute; left:-9999px; top:-9999px; visibility:hidden; max-width:520px; line-height:1.4; font-size:14px;';
-    probe.className = 'bot-text';
-    probe.innerHTML = html;
-    document.body.appendChild(probe);
-    const height = probe.scrollHeight;
-    const lineHeight = parseFloat(getComputedStyle(probe).lineHeight) || 20;
-    const lines = height / lineHeight;
-    document.body.removeChild(probe);
-    return lines > 8;
-  }
-
-  applyClamp(el, clamp) {
-    if (clamp) {
-      el.style.display = '-webkit-box';
-      el.style.webkitBoxOrient = 'vertical';
-      el.style.webkitLineClamp = '8';
-      el.style.overflow = 'hidden';
-      el.style.maxWidth = '520px';
-    } else {
-      el.style.display = '';
-      el.style.webkitBoxOrient = '';
-      el.style.webkitLineClamp = '';
-      el.style.overflow = '';
-      el.style.maxWidth = '';
-    }
-  }
+  // hjs 수정: UIHelpers로 이관된 기능에 위임
+  needsClamp(html) { return (window.UIHelpers && UIHelpers.needsClamp) ? UIHelpers.needsClamp(html) : false; }
+  applyClamp(el, clamp) { if (window.UIHelpers && UIHelpers.applyClamp) UIHelpers.applyClamp(el, clamp); }
 
   handleClampToggle(e) {
     const btn = e.target.closest('button[data-action="expand"], button[data-action="collapse"]');
@@ -934,7 +558,8 @@ class ChatBot {
     this.scrollToBottom();
   }
 
-  addImageMessage(src, sender = 'user') {
+  addImageMessage(src, sender) {
+    if (typeof sender === 'undefined') sender = 'user';
     const messagesContainer = document.getElementById('messages');
     const wrapper = document.createElement('div');
     wrapper.className = 'mb-4 message-animation';
@@ -959,363 +584,161 @@ class ChatBot {
     }
     messagesContainer.appendChild(wrapper);
     this.scrollToBottom();
+    this.persistChatState();
   }
 
   showTyping(){ document.getElementById('loadingIndicator').classList.remove('hidden'); this.scrollToBottom(); }
   hideTyping(){ document.getElementById('loadingIndicator').classList.add('hidden'); }
 
-  showCustomLoading(type, message, animationType='dots') {
-    const indicator=document.getElementById('loadingIndicator');
-    const icon=document.getElementById('loadingIcon');
-    const text=document.getElementById('loadingText');
-    const dotsAnimation=document.getElementById('dotsAnimation');
-    const progressAnimation=document.getElementById('progressAnimation');
-    const pulseAnimation=document.getElementById('pulseAnimation');
-    const progressText=document.getElementById('progressText');
-    const pulseText=document.getElementById('pulseText');
+  // ✅ 로딩 말풍선을 "맨 아래 appendChild" 방식으로 표시/제거
+  showCustomLoading(type, message, animationType) {
+    if (typeof animationType === 'undefined') animationType = 'dots';
+    // 기존 로딩 제거(중복 방지)
+    this.hideCustomLoading();
 
-    dotsAnimation.classList.add('hidden'); progressAnimation.classList.add('hidden'); pulseAnimation.classList.add('hidden');
-    const loadingConfigs={
-      'search':{icon:'fas fa-search rotating-icon',colorClass:'loading-search',message:message||'상품을 검색 중입니다...'},
-      'recipe':{icon:'fas fa-utensils loading-icon',colorClass:'loading-recipe',message:message||'레시피를 검색 중입니다...'},
-      'cart':{icon:'fas fa-shopping-cart loading-icon',colorClass:'loading-cart',message:message||'장바구니를 업데이트 중입니다...'},
-      'cs':{icon:'fas fa-headset loading-icon',colorClass:'loading-cs',message:message||'문의 내용을 확인 중입니다...'},
-      'popular':{icon:'fas fa-fire loading-icon',colorClass:'loading-search',message:message||'인기 상품을 준비 중입니다...'}
+    const messagesContainer = document.getElementById('messages');
+    const wrapper = document.createElement('div');
+    wrapper.id = 'loadingIndicator';
+    wrapper.className = 'mb-4 message-animation';
+
+    const loadingConfigs = {
+      search:  { icon: 'fas fa-search rotating-icon',  colorClass: 'loading-search',  message: message || '상품을 검색 중입니다...' },
+      recipe:  { icon: 'fas fa-utensils loading-icon', colorClass: 'loading-recipe',  message: message || '레시피를 검색 중입니다...' },
+      cart:    { icon: 'fas fa-shopping-cart loading-icon', colorClass: 'loading-cart', message: message || '장바구니를 업데이트 중입니다...' },
+      cs:      { icon: 'fas fa-headset loading-icon', colorClass: 'loading-cs', message: message || '문의 내용을 확인 중입니다...' },
+      // hjs 수정: popular는 더 이상 사용하지 않음(라우팅 일원화)
+      popular: { icon: 'fas fa-search rotating-icon', colorClass: 'loading-search', message: message || '상품을 검색 중입니다...' }
     };
-    const config=loadingConfigs[type]||loadingConfigs['search'];
-    icon.innerHTML=`<i class="${config.icon} ${config.colorClass}"></i>`;
-    text.textContent=config.message;
-    switch(animationType){
-      case 'progress': progressAnimation.classList.remove('hidden'); progressText.textContent='데이터베이스 조회 중...'; setTimeout(()=>{ if(progressText) progressText.textContent='결과를 정리하고 있어요...'; },1500); break;
-      case 'pulse':    pulseAnimation.classList.remove('hidden'); pulseText.textContent='최적의 결과를 찾고 있어요 ✨'; break;
-      default:         dotsAnimation.classList.remove('hidden');
-    }
-    indicator.classList.remove('hidden'); this.scrollToBottom();
+    const config = loadingConfigs[type] || loadingConfigs['search'];
+
+    wrapper.innerHTML = `
+      <div class="flex items-start">
+        <div class="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center mr-3 flex-shrink-0">
+          <i class="${config.icon} ${config.colorClass}"></i>
+        </div>
+        <div class="message-bubble-bot">
+          <div class="flex items-center">
+            <span>${config.message}</span>
+          </div>
+          <div class="mt-2 flex space-x-1">
+            <div class="w-2 h-2 bg-green-500 rounded-full animate-bounce"></div>
+            <div class="w-2 h-2 bg-green-500 rounded-full animate-bounce" style="animation-delay: 0.1s"></div>
+            <div class="w-2 h-2 bg-green-500 rounded-full animate-bounce" style="animation-delay: 0.2s"></div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    messagesContainer.appendChild(wrapper);
+    this.scrollToBottom();
   }
-  hideCustomLoading(){ document.getElementById('loadingIndicator').classList.add('hidden'); }
+
+  hideCustomLoading() {
+    const indicator = document.getElementById('loadingIndicator');
+    if (indicator) indicator.remove();
+  }
 
   showSmartLoading(message){
     const msg=message.toLowerCase();
-    if (msg.includes('인기')||msg.includes('추천')) { this.showCustomLoading('popular','고객들이 많이 찾는 인기상품을 준비 중입니다...','progress'); return; }
+    // hjs 수정: 'popular' 대신 일반 'search' 로딩 사용(추천/인기 포함)
+    if (msg.includes('인기')||msg.includes('추천')) { this.showCustomLoading('search','상품 정보를 검색 중입니다...','progress'); return; }
     if (msg.includes('레시피')||msg.includes('요리')||msg.includes('만들')||msg.includes('조리')) { this.showCustomLoading('recipe','맛있는 레시피를 검색 중입니다...','pulse'); return; }
     if (msg.includes('장바구니')||msg.includes('담아')||msg.includes('주문')) { this.showCustomLoading('cart','장바구니 정보를 확인 중입니다...','dots'); return; }
     if (msg.includes('문의')||msg.includes('배송')||msg.includes('환불')||msg.includes('교환')||msg.includes('탈퇴')) { this.showCustomLoading('cs','고객지원 정보를 찾고 있습니다...','dots'); return; }
     this.showCustomLoading('search','상품 정보를 검색 중입니다...','progress');
   }
 
-  scrollToBottom(){ const c=document.getElementById('chatContainer'); c.scrollTop=c.scrollHeight; }
+  scrollToBottom(){
+    // 우선 실제 스크롤 컨테이너인 메시지 영역을 스크롤
+    const messages = document.getElementById('messages');
+    if (messages) {
+      messages.scrollTop = messages.scrollHeight;
+    }
+    // 래퍼 컨테이너도 함께 보정
+    const c = document.getElementById('chatContainer');
+    if (c) {
+      c.scrollTop = c.scrollHeight;
+    }
+  }
 
   // ✅ 개선된 사이드바 업데이트 (페이지네이션 적용)
   updateSidebar(data){
     // 상품 목록 업데이트 (페이지네이션 적용)
-    if (data.search?.candidates) {
-      this.updateProductsList(data.search.candidates);
+    if (data.search && data.search.candidates) {
+      if (window.ChatProducts) ChatProducts.updateProductsList(this, data.search.candidates);
     } else {
       // 상품 검색 결과가 없으면 상품 섹션 숨김
       document.getElementById('productsSection').classList.add('hidden');
     }
     
-    this.updateRecipesList(data.recipe);
+    if (window.ChatRecipes) ChatRecipes.updateRecipesList(this, data.recipe);
     if (data.cart) this.updateCart(data.cart,true);
     this.updateOrderInfo(data.order);
-    this.updateCS(data.cs);
+    if (window.ChatCS) ChatCS.updateCS(this, data.cs);
   }
 
-  // ✅ 상품 목록 업데이트 (페이지네이션 적용)
-  updateProductsList(products){
-    const section=document.getElementById('productsSection');
+  // hjs 수정: 레시피/재료 목록 처리는 ChatRecipes 모듈에 위임(메서드 삭제)
 
-    if (products) {
-      this.productCandidates = products;
-      this.productPage = 0;
-      this.productSortBy = 'popular'; // 새 데이터가 오면 인기순으로 초기화
-    }
-
-    if (!this.productCandidates || this.productCandidates.length === 0) {
-      section.classList.add('hidden');
-      return;
-    }
-
-    section.classList.remove('hidden');
-    this._renderProductPage();
+  getFavoritesKey(){ return `favorite_recipes_${this.userId}`; }
+  loadFavoriteRecipes(){ try{ return JSON.parse(localStorage.getItem(this.getFavoritesKey())||'[]'); }catch(_){ return []; } }
+  // hjs 수정: 서버 즐겨찾기 추가 연동
+  saveFavoriteRecipe(item){
+    return fetch('/api/recipes/favorites',{
+      method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include',
+      body: JSON.stringify({
+        user_id: this.userId,
+        recipe_url: item.url||item.recipe_url,
+        recipe_title: item.title||item.recipe_title,
+        snippet: item.description||item.snippet||'',
+        source: 'tavily'
+      })
+    }).then(r=>r.json()).then((data)=>{
+      if (data && data.code==='already_exists') this.addMessage('이미 저장된 레시피입니다','bot');
+      const list=this.loadFavoriteRecipes(); list.unshift(item);
+      localStorage.setItem(this.getFavoritesKey(), JSON.stringify(this.dedupeRecipes(list)));
+      try { this.renderFavorites(); } catch(_) {}
+      // hjs 수정: 즐겨찾기 추가 안내
+      try { if (item && (item.title||item.recipe_title)) this.addMessage(`"${item.title||item.recipe_title}"을(를) 즐겨찾기에 추가했습니다.`, 'bot'); } catch(_) {}
+    }).catch(e=>console.error('saveFavoriteRecipe error', e));
   }
-
-  /* ================================
-     레시피/추천 재료 (페이지네이션 적용)
-  ==================================*/
-  updateRecipesList(recipePayload){
-    const section=document.getElementById('recipesSection'); 
-    const list=document.getElementById('recipesList');
-    const sectionTitle = section?.querySelector('h3');
-
-    const ingredients = recipePayload?.ingredients;
-    if (ingredients && ingredients.length>0){
-      // 재료 추천 모드 (페이지네이션 적용)
-      this.ingredientCandidates = ingredients;
-      this.ingredientPage = 0;
-      this.ingredientSortBy = 'popular'; // 새 데이터가 오면 인기순으로 초기화
-      
-      section.classList.remove('hidden');
-      if (sectionTitle) sectionTitle.innerHTML = '<i class="fas fa-shopping-basket mr-2 text-yellow-500"></i>추천 재료';
-      
-      this._renderIngredientsPage();
-      return;
-    }
-
-    // 기존 레시피 검색 결과 처리 (페이지네이션 없음)
-    const recipes = recipePayload?.results;
-    if (!recipes || recipes.length===0){ section.classList.add('hidden'); return; }
-    section.classList.remove('hidden');
-    if (sectionTitle) sectionTitle.innerHTML = '<i class="fas fa-utensils mr-2 text-yellow-500"></i>레시피';
-    list.innerHTML='';
-    recipes.slice(0,3).forEach(r=>{
-      const card=document.createElement('div');
-      card.className='recipe-card rounded-lg p-3 text-sm mb-2 cursor-pointer hover:bg-gray-50 transition-colors border border-transparent hover:border-yellow-300';
-      card.innerHTML=`
-        <h4 class="font-semibold text-gray-800 mb-2">${this.escapeHtml(r.title)}</h4>
-        <p class="text-gray-600 mb-2 text-xs">${this.escapeHtml(r.description||'')}</p>
-        <div class="flex items-center justify-between">
-          <button class="recipe-ingredients-btn bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-1 rounded text-xs font-medium transition">
-            <i class="fas fa-shopping-basket mr-1"></i>재료 추천받기
-          </button>
-          <a href="${r.url}" target="_blank" class="text-blue-600 text-xs hover:underline font-bold">전체 레시피 보기 <i class="fas fa-external-link-alt ml-1"></i></a>
-        </div>`;
-      card.querySelector('.recipe-ingredients-btn').addEventListener('click',(e)=>{
-        e.stopPropagation(); this.requestRecipeIngredients(r);
-      });
-      list.appendChild(card);
+  // hjs 수정: 서버 즐겨찾기 삭제 연동
+  removeFavoriteRecipe(item){
+    return fetch('/api/recipes/favorites',{
+      method:'DELETE', headers:{'Content-Type':'application/json'}, credentials:'include',
+      body: JSON.stringify({ user_id: this.userId, recipe_url: item.url||item.recipe_url })
+    }).then(r=>r.json()).then((data)=>{
+      if (data && data.code==='already_removed') this.addMessage('이미 제거된 레시피 입니다','bot');
+    }).catch(e=>console.error('removeFavoriteRecipe error', e)).finally(()=>{
+      const list=this.loadFavoriteRecipes().filter(x=>x.url!==item.url && x.title!==item.title);
+      localStorage.setItem(this.getFavoritesKey(), JSON.stringify(list));
+      try { this.renderFavorites(); } catch(_) {}
+      // hjs 수정: 즐겨찾기 제거 안내
+      try { if (item && (item.title||item.recipe_title)) this.addMessage(`"${item.title||item.recipe_title}"을(를) 즐겨찾기에서 제거했습니다.`, 'bot'); } catch(_) {}
     });
   }
-
-  async requestRecipeIngredients(recipe){
-    const userMessage=`"${recipe.title}" 레시피에 필요한 재료들을 추천해주세요`;
-    this.addMessage(userMessage,'user');
-
-    const requestMessage=`선택된 레시피: "${recipe.title}"
-레시피 설명: ${recipe.description||''}
-URL: ${recipe.url||''}
-
-이 레시피에 필요한 재료들을 우리 쇼핑몰에서 구매 가능한 상품으로 추천해주세요.`;
-
-    const data = await this.sendMessage(requestMessage, true);
-    if (data && data.response) this.addMessage(data.response, 'bot');
-  }
-
-  handleBulkAddToCart(){
-    const list = document.getElementById('recipesList');
-    const checks = list.querySelectorAll('.ingredient-checkbox:checked');
-    if (checks.length===0){ alert('담을 재료를 선택해주세요.'); return; }
-
-    const selected = [];
-    checks.forEach(cb=>{
-      selected.push({
-        name: cb.dataset.productName,
-        price: parseFloat(cb.dataset.productPrice),
-        origin: cb.dataset.productOrigin,
-        organic: cb.dataset.productOrganic === 'true'
-      });
-    });
-
-    const names = selected.map(p=>p.name).join(', ');
-    this.addMessage(`선택한 재료들을 장바구니에 담아주세요: ${names}`,'user');
-    this.sendBulkAddRequest(selected);
-  }
-
-  async sendBulkAddRequest(products){
-    this.showCustomLoading('cart','선택한 재료들을 장바구니에 담고 있습니다...','progress');
-    try{
-      const res = await fetch('/api/cart/bulk-add',{
-        method:'POST',
-        headers:{
-          'Content-Type':'application/json',
-          ...(getCSRFToken()?{'X-CSRFToken':getCSRFToken()}:{}),
-        },
-        body: JSON.stringify({ user_id:this.userId, products }),
-        credentials:'include'
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || '일괄 담기 실패');
-
-      const successCount = data.added_count || products.length;
-      this.addMessage(`${successCount}개의 재료가 장바구니에 담겼습니다!`,'bot');
-      if (data.cart) this.updateCart(data.cart, true);
-
-      const list = document.getElementById('recipesList');
-      list.querySelectorAll('.ingredient-checkbox').forEach(cb=>cb.checked=false);
-      const all = list.querySelector('#select-all-ingredients');
-      if (all) all.checked=false;
-    }catch(err){
-      console.error('Bulk add error:', err);
-      this.addMessage('선택한 재료를 담는 중 오류가 발생했습니다.','bot',true);
-    }finally{
-      this.hideCustomLoading();
+  // hjs 수정: 클래스 메서드로 변경
+  dedupeRecipes(list){
+    const seen = new Set();
+    const out = [];
+    for (const r of list){
+      const key = (r.url && String(r.url).trim()) || (r.title && String(r.title).trim()) || JSON.stringify(r);
+      if (!seen.has(key)) { seen.add(key); out.push(r); }
     }
+    return out;
   }
+  
+  // helper: 즐겨찾기 중복 제거 (url 우선, 없으면 title)
+  
+  
+  
+
+  // hjs 수정: 래퍼 제거 — ChatRecipes 모듈을 직접 호출하도록 바인딩 변경(위 bindEvents 참고)
 
 //환불/교환/배송문의 UI
 
-updateCS(cs) {
-  if (!cs || !Array.isArray(cs.orders) || cs.orders.length === 0) return;
+  // hjs 수정: CS 주문 목록/렌더는 ChatCS 모듈에 위임(메서드 삭제)
 
-  // 배송문의 식별: 서버가 내려주는 플래그/카테고리로 체크
-  const isDelivery = !!cs.always_show || cs.category === '배송' || cs.list_type === 'delivery';
-  
-  // 배송문의 상태를 클래스 속성에 저장
-  this.isCurrentlyDeliveryInquiry = isDelivery;
-
-  const key = cs.orders.map(o => String(o.order_code)).join(',');
-
-  // 배송문의가 아니면 중복 방지 유지
-  if (!isDelivery) {
-    if (this.lastOrdersKey === key) return;
-    this.lastOrdersKey = key;
-  }
-  // 배송문의면 캐시를 건드리지 않음 → 항상 표시
-
-  const messages = document.getElementById('messages');
-  const wrap = document.createElement('div');
-  wrap.className = 'mb-4 message-animation';
-  const hint = this.escapeHtml(cs.message);
-
-  const itemsHtml = cs.orders.map(o => {
-    const date = this.escapeHtml(o.order_date || '');
-    const price = Number(o.total_price || 0).toLocaleString();
-    const code = this.escapeHtml(String(o.order_code));
-    const status = this.escapeHtml(o.order_status || '');
-    return `
-      <button class="order-select-btn px-3 py-2 rounded-lg border hover:bg-blue-50 w-full text-left"
-              data-order="${code}">
-        <div class="flex items-center justify-between">
-          <div class="font-medium">주문 #${code}</div>
-          <div class="text-sm text-gray-500">${date} · ${price}원</div>
-        </div>
-        <div class="text-xs text-gray-500 mt-1">상태: ${status}</div>
-      </button>`;
-  }).join('');
-
-  wrap.innerHTML = `
-    <div class="flex items-start">
-      <div class="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center mr-3 flex-shrink-0">
-        <i class="fas fa-robot text-green-600 text-sm"></i>
-      </div>
-      <div class="message-bubble-bot">
-        <div class="mb-2">${hint}</div>
-        <div class="grid grid-cols-1 gap-2">${itemsHtml}</div>
-      </div>
-    </div>`;
-  messages.appendChild(wrap);
-  this.scrollToBottom();
-}
-
-  // 주문 선택 버튼 클릭
-  handleOrderSelectClick(e) {
-    const btn = e.target.closest('.order-select-btn');
-    if (!btn) return;
-    const orderCode = btn.dataset.order;
-    if (!orderCode) return;
-    this.fetchAndShowOrderDetails(orderCode);
-  }
-
-  // 주문 상세의 "상품 행" 클릭 → 업로드 시작(버튼도 제공)
-  handleOrderItemClick(e){
-    if (e.target.closest('.evidence-upload-btn')) return;
-    const row = e.target.closest('tr.order-item-row');
-    if (!row) return;
-    const bubble = row.closest('.order-details-bubble');
-    if (!bubble) return;
-
-    // 배송문의일 때는 행 클릭을 무시
-    if (this.isCurrentlyDeliveryInquiry) return;
-
-    const product = row.dataset.product || '';
-    const orderCode = bubble.dataset.orderCode || '';
-    if (!product || !orderCode) return;
-
-    this.ensureEvidenceInput();
-    this.pendingEvidence = { orderCode, product };
-    this.showCustomLoading('cs', `'${product}' 사진을 업로드해주세요`, 'dots');
-    this.evidenceInput.click();
-  }
-
-  // "사진 업로드" 버튼 클릭 처리 (수량 전달)
-  handleEvidenceUploadButtonClick(e){
-    const btn = e.target.closest('.evidence-upload-btn');
-    if (!btn) return;
-
-    // 버튼이 속한 행에서 최대 수량 읽기
-    const row = btn.closest('tr.order-item-row');
-    const maxQty = row ? parseInt(row.dataset.qty || '1', 10) : 1;
-
-    const orderCode = btn.dataset.order;
-    const product = btn.dataset.product;
-    if (!orderCode || !product) return;
-
-    // 사용자에게 수량 입력 받기 (기본 1)
-    let qty = 1;
-    if (maxQty > 1) {
-      const ans = prompt(`환불 요청 수량을 입력해주세요 (1 ~ ${maxQty})`, '1');
-      const n = parseInt(ans || '1', 10);
-      qty = isNaN(n) ? 1 : Math.min(Math.max(1, n), maxQty);
-    }
-
-    this.ensureEvidenceInput();
-    this.pendingEvidence = { orderCode, product, quantity: qty };
-    this.showCustomLoading('cs', `'${product}' 사진을 업로드해주세요`, 'dots');
-    this.evidenceInput.click();
-  }
-
-  // 증빙 업로드 input 생성
-  ensureEvidenceInput(){
-    if (this.evidenceInput) return;
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/*';
-    input.style.display = 'none';
-    input.addEventListener('change', (e) => this.handleEvidenceSelected(e));
-    document.body.appendChild(input);
-    this.evidenceInput = input;
-  }
-
-  // 파일 선택 후 업로드 → 판정 요청
-  async handleEvidenceSelected(e){
-    const file = e.target.files && e.target.files[0];
-    e.target.value = '';  // 같은 파일 재업로드 허용
-    this.hideCustomLoading();
-    if (!file || !this.pendingEvidence) return;
-
-    const previewUrl = URL.createObjectURL(file);
-    this.addImageMessage(previewUrl, 'user');
-
-    const { orderCode, product, quantity } = this.pendingEvidence;
-    this.pendingEvidence = null;
-
-    this.showCustomLoading('cs', '증빙 이미지를 분석 중입니다...', 'dots');
-    try {
-      const form = new FormData();
-      form.append('image', file);
-      form.append('user_id', this.userId);
-      form.append('order_code', orderCode);
-      form.append('product', product);
-      form.append('quantity', String(quantity || 1));   // ✅ 수량 전송
-
-      const headers = {};
-      const csrf = getCSRFToken(); if (csrf) headers['X-CSRFToken'] = csrf;
-
-      const res = await fetch('/api/cs/evidence', {
-        method: 'POST',
-        body: form,
-        headers,
-        credentials: 'include'
-      });
-      const data = await res.json();
-      this.renderEvidenceResultBubble(data, { orderCode, product });
-    } catch (err){
-      console.error(err);
-      this.addMessage('이미지 업로드/분석 중 오류가 발생했어요.', 'bot', true);
-    } finally {
-      this.hideCustomLoading();
-    }
-  }
+  // hjs 수정: 래퍼 제거 — 주문 선택/증빙 관련 이벤트는 bindEvents에서 ChatCS로 직접 연결
 
 // 증빙 분석 결과 말풍선 
 renderEvidenceResultBubble(data, ctx){
@@ -1384,6 +807,7 @@ renderEvidenceResultBubble(data, ctx){
     const subtotalEl=document.getElementById('subtotalAmount');
     const discountEl=document.getElementById('discountAmount');
     const totalEl=document.getElementById('totalAmount');
+    const shippingFeeEl=document.getElementById('shippingFee');
     const checkoutButton=document.getElementById('checkoutButton');
 
     if (!currentCart||!currentCart.items||currentCart.items.length===0){
@@ -1392,13 +816,20 @@ renderEvidenceResultBubble(data, ctx){
     }
 
     section.classList.remove('hidden'); countBadge.textContent=currentCart.items.length; list.innerHTML='';
+    console.log('장바구니 업데이트 시작. 상품 개수:', currentCart.items.length);
     currentCart.items.forEach(item=>{
       const itemDiv=document.createElement('div');
       itemDiv.className='cart-item flex items-center justify-between bg-white rounded p-2 text-sm';
       itemDiv.innerHTML=`
-        <div class="flex-1 mr-2">
-          <span class="font-medium">${this.escapeHtml(item.name)}</span>
-          <div class="text-xs text-gray-500">${this.formatPrice(item.unit_price)}원</div>
+        <div class="flex items-center flex-1 mr-2">
+          <label class="flex items-center cursor-pointer mr-2">
+            <input type="checkbox" class="cart-select" data-product-name="${this.escapeHtml(item.name)}" style="pointer-events: auto; z-index: 10; position: relative;" />
+            <span class="ml-1 text-xs text-gray-400">선택</span>
+          </label>
+          <div>
+            <span class="font-medium">${this.escapeHtml(item.name)}</span>
+            <div class="text-xs text-gray-500">${this.formatPrice(item.unit_price)}원</div>
+          </div>
         </div>
         <div class="quantity-controls flex items-center">
           <button class="quantity-btn minus-btn" data-product-name="${this.escapeHtml(item.name)}">-</button>
@@ -1409,21 +840,134 @@ renderEvidenceResultBubble(data, ctx){
           <i class="fas fa-times"></i>
         </button>`;
       list.appendChild(itemDiv);
+
+      // hjs 수정: 체크박스 변경 시 금액 재계산
+      const checkbox = itemDiv.querySelector('.cart-select');
+      if (checkbox) {
+        checkbox.checked = true; // 명시적으로 체크된 상태로 설정
+        console.log('체크박스 생성됨:', item.name, '상태:', checkbox.checked);
+
+        // 여러 이벤트를 모두 처리
+        checkbox.addEventListener('change', () => {
+          console.log('체크박스 변경됨 (change):', item.name, '새 상태:', checkbox.checked);
+          this.recalculateCartTotals();
+        });
+
+        checkbox.addEventListener('click', (e) => {
+          console.log('체크박스 클릭됨 (click):', item.name, '상태:', checkbox.checked);
+          // 클릭 이벤트에서는 상태가 바뀌기 전이므로 setTimeout 사용
+          setTimeout(() => {
+            console.log('체크박스 클릭 후 상태:', item.name, '새 상태:', checkbox.checked);
+            this.recalculateCartTotals();
+          }, 0);
+        });
+      }
     });
 
-    subtotalEl.textContent=this.formatPrice(currentCart.subtotal)+'원';
-    const discountAmount=(currentCart.discounts||[]).reduce((acc,d)=>acc+d.amount,0);
-    discountEl.textContent=`- ${this.formatPrice(discountAmount)}원`;
-    totalEl.textContent=this.formatPrice(currentCart.total)+'원';
     checkoutButton.classList.remove('hidden');
+    // 선택 제거 버튼은 UX 요청으로 제거 (기능 유지: 선택 결제만 사용)
+
+    // hjs 수정: 모든 체크박스가 추가된 후 초기 금액 계산 (비동기로 실행)
+    setTimeout(() => {
+      this.recalculateCartTotals();
+    }, 0);
+  }
+
+  // hjs 수정: 선택된 상품만의 금액 재계산
+  recalculateCartTotals(){
+    console.log('=== recalculateCartTotals 시작 ===');
+    if (!this.cartState || !this.cartState.items) {
+      console.log('cartState 없음');
+      return;
+    }
+
+    const allCheckboxes = document.querySelectorAll('.cart-select');
+    const selectedCheckboxes = document.querySelectorAll('.cart-select:checked');
+    console.log('전체 체크박스:', allCheckboxes.length, '선택된 체크박스:', selectedCheckboxes.length);
+
+    const selectedProductNames = Array.from(selectedCheckboxes).map(cb => cb.dataset.productName).filter(Boolean);
+    console.log('선택된 상품명:', selectedProductNames);
+
+    const selectedItems = this.cartState.items.filter(item => selectedProductNames.includes(item.name));
+    console.log('cartState.items:', this.cartState.items.length, '선택된 상품:', selectedItems.length);
+
+    // 선택된 상품들의 소계 계산
+    const subtotal = selectedItems.reduce((acc, item) => acc + (parseFloat(item.unit_price||0) * parseInt(item.qty||0, 10)), 0);
+    console.log('계산된 소계:', subtotal);
+
+    // 멤버십 정보
+    const m = (this.cartState.membership || {});
+    const rate = Number((m.discount_rate != null ? m.discount_rate : (m.meta && m.meta.discount_rate)) || 0);
+    const freeThr = Number((m.free_shipping_threshold != null ? m.free_shipping_threshold : (m.meta && m.meta.free_shipping_threshold)) || 30000);
+
+    console.log('멤버십 정보:', m);
+    console.log('무료배송 기준:', freeThr);
+
+    // 할인 계산
+    const membershipDiscount = Math.floor(subtotal * rate);
+    const effectiveSubtotal = subtotal - membershipDiscount;
+    const BASE_SHIPPING = 3000;
+
+    // 할인 목록 구성
+    const discounts = [];
+    if (membershipDiscount > 0 && selectedItems.length > 0) {
+      discounts.push({ type: 'membership_discount', amount: membershipDiscount, description: '멤버십 할인' });
+    }
+
+    // 무료배송 조건 확인 (멤버십별 기준 적용)
+    const qualifiesForFreeShipping = (effectiveSubtotal >= freeThr && selectedItems.length > 0);
+    const isPremiumFreeShipping = (freeThr === 0 && selectedItems.length > 0); // premium은 무조건 무료
+
+    if (qualifiesForFreeShipping || isPremiumFreeShipping) {
+      discounts.push({ type: 'free_shipping', amount: BASE_SHIPPING, description: '무료배송' });
+    }
+
+    // UI 업데이트
+    const subtotalEl = document.getElementById('subtotalAmount');
+    const discountEl = document.getElementById('discountAmount');
+    const totalEl = document.getElementById('totalAmount');
+    const shippingFeeEl = document.getElementById('shippingFee');
+
+    if (subtotalEl) subtotalEl.textContent = this.formatPrice(subtotal) + '원';
+
+    const productDiscountAmount = discounts.filter(d => d.type !== 'free_shipping').reduce((acc, d) => acc + (d.amount || 0), 0);
+    if (discountEl) discountEl.textContent = `- ${this.formatPrice(productDiscountAmount)}원`;
+
+    const hasFreeShip = discounts.some(d => d.type === 'free_shipping');
+    const displayShipping = selectedItems.length > 0 ? (hasFreeShip ? 0 : BASE_SHIPPING) : 0;
+
+    console.log('무료배송 조건:', {
+      freeThr,
+      effectiveSubtotal,
+      qualifiesForFreeShipping,
+      isPremiumFreeShipping,
+      hasFreeShip,
+      displayShipping
+    });
+
+    if (shippingFeeEl) shippingFeeEl.textContent = this.formatPrice(displayShipping) + '원';
+
+    const totalDiscount = discounts.reduce((acc, d) => acc + (d.amount || 0), 0);
+
+    // 총액에서도 실제 배송비(displayShipping) 사용
+    const total = Math.max(0, subtotal + displayShipping - totalDiscount);
+    console.log('최종 계산:', `상품금액(${subtotal}) + 배송비(${displayShipping}) - 할인(${totalDiscount}) = ${total}`);
+
+    if (totalEl) totalEl.textContent = this.formatPrice(total) + '원';
   }
 
   updateOrderInfo(order){
-    const section=document.getElementById('orderSection');
-    const info=document.getElementById('orderInfo');
-    if (!order||!order.order_id){ section.classList.add('hidden'); return; }
+    const section = document.getElementById('orderSection');
+    const info = document.getElementById('orderInfo');
+    // 섹션 요소가 없는 페이지(랜딩/마이페이지 등)에서는 안전하게 무시
+    if (!section || !info) return;
+    if (!order || !order.order_id) {
+      section.classList.add('hidden');
+      info.innerHTML = '';
+      return;
+    }
     section.classList.remove('hidden');
-    info.innerHTML=`
+    info.innerHTML = `
       <p><strong>주문번호:</strong> ${this.escapeHtml(order.order_id)}</p>
       <p><strong>총 금액:</strong> ${this.formatPrice(order.total_amount)}원</p>
       <p><strong>상태:</strong> <span class="font-bold text-blue-600">${order.status==='confirmed'?'주문완료':'처리중'}</span></p>`;
@@ -1438,15 +982,51 @@ renderEvidenceResultBubble(data, ctx){
       this.updateSessionInfo();
       document.getElementById('productsSection').classList.add('hidden');
       document.getElementById('recipesSection').classList.add('hidden');
+      this.persistChatState();
     }
   }
 
-  escapeHtml(text){ const div=document.createElement('div'); div.textContent=text||''; return div.innerHTML; }
-  formatPrice(price){ if (price===null||price===undefined) return '0'; return new Intl.NumberFormat('ko-KR').format(price); }
+  persistChatState(){
+    try{
+      const key = `chat_messages_${this.userId}`;
+    var _mc = document.getElementById('messages');
+    const html = (_mc && _mc.innerHTML) || '';
+      localStorage.setItem(key, html);
+      localStorage.setItem(`chat_session_${this.userId}`, this.sessionId||'');
+    }catch(_){}
+  }
+
+  restoreChatState(){
+    try{
+      const key = `chat_messages_${this.userId}`;
+      const html = localStorage.getItem(key);
+      if (html){
+        const messagesContainer = document.getElementById('messages');
+        if (messagesContainer){ messagesContainer.innerHTML = html; this.scrollToBottom(); }
+      }
+      const sid = localStorage.getItem(`chat_session_${this.userId}`);
+      if (sid) this.sessionId = sid;
+      this.updateSessionInfo();
+      // 마이페이지에서 브릿지된 메시지 처리
+      const pending = localStorage.getItem(`chat_pending_message_${this.userId}`);
+      if (pending){
+        this.addMessage(pending, 'user');
+        // hjs 수정: 마이페이지→챗봇 브릿지 시 봇 응답(레시피 설명 포함)을 즉시 화면에 표시하기 위해 silent=false로 전송
+        this.sendMessage(pending, true);
+        localStorage.removeItem(`chat_pending_message_${this.userId}`);
+      }
+    }catch(_){ }
+  }
+
+  // hjs 수정: 이스케이프/가격 포맷은 UIHelpers 위임
+  escapeHtml(text){ return (window.UIHelpers && UIHelpers.escapeHtml) ? UIHelpers.escapeHtml(text) : String(text||''); }
+  formatPrice(price){ return (window.UIHelpers && UIHelpers.formatPrice) ? UIHelpers.formatPrice(price) : String(price||0); }
 
   async showCartInChat(){
+    // hjs 수정: 완전 위임 — ChatCart.showCartInChat 사용
+    if (window.ChatCart) return ChatCart.showCartInChat(this);
     this.addMessage('장바구니 보여주세요','user');
-    if (!this.cartState||!this.cartState.items){ await this.ensureCartLoaded(); }
+    if (!this.cartState||!this.cartState.items){ if (window.ChatCart) await ChatCart.ensureCartLoaded(this); }
     if (!this.cartState||!this.cartState.items||this.cartState.items.length===0){ this.addMessage('현재 장바구니가 비어있습니다.','bot'); return; }
     let cartMessage='🛒 현재 장바구니 내용:\n\n';
     this.cartState.items.forEach((item,i)=>{
@@ -1462,39 +1042,17 @@ renderEvidenceResultBubble(data, ctx){
     this.addMessage(cartMessage,'bot');
   }
 
-  async handleImageSelected(e){
-    const file=e.target.files && e.target.files[0]; if (!file) return;
-    const previewUrl=URL.createObjectURL(file); this.addImageMessage(previewUrl,'user');
-    try{
-      const form=new FormData();
-      form.append('image',file);
-      form.append('user_id',this.userId);
-      form.append('session_id',this.sessionId);
-      const headers={}; const csrf=getCSRFToken(); if (csrf) headers['X-CSRFToken']=csrf;
-      const res=await fetch('/api/upload/image',{ method:'POST', body:form, headers, credentials:'include' });
-      const data=await res.json();
-      const imageUrl=data.url||data.image_url||'';
-      if (imageUrl){ const hiddenMsg=`__IMAGE_UPLOADED__ ${imageUrl}`; await this.sendMessage(hiddenMsg,true); }
-    }catch(err){ console.error(err); this.addMessage('이미지 업로드 중 오류가 발생했어요.','bot',true); }
-    finally{ e.target.value=''; }
-  }
-
-  handleCheckout(){
-    if (!this.cartState||!this.cartState.items||this.cartState.items.length===0){ alert('장바구니가 비어있습니다.'); return; }
-    const message=`장바구니에 있는 상품들로 주문 진행하고 싶어요`;
-    this.addMessage(message,'user'); this.sendMessage(message);
-  }
+  // hjs 수정: 업로드/결제/선택 제거 등은 각 모듈(ChatUpload/ChatCart)로 완전 위임
 
   // 주문 상세 조회 호출
   async fetchAndShowOrderDetails(orderCode) {
     this.showCustomLoading('cs', '주문 내역을 불러오는 중입니다...', 'dots');
     try {
+      var _hdr = { 'Content-Type': 'application/json' };
+      var _csrf = getCSRFToken && getCSRFToken(); if (_csrf) _hdr['X-CSRFToken'] = _csrf;
       const res = await fetch('/api/orders/details', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(getCSRFToken() ? { 'X-CSRFToken': getCSRFToken() } : {})
-        },
+        headers: _hdr,
         body: JSON.stringify({
           order_code: String(orderCode),
           user_id: this.userId
@@ -1511,41 +1069,10 @@ renderEvidenceResultBubble(data, ctx){
 
       // 배송문의 상태를 data 객체에 추가하여 전달
       data.isDeliveryInquiry = this.isCurrentlyDeliveryInquiry;
-      this.renderOrderDetailsBubble(data);
-    } catch (err) {
-      console.error('order details error:', err);
-      this.addMessage('주문 내역을 불러오던 중 오류가 발생했어요.', 'bot', true);
-    } finally {
-      this.hideCustomLoading();
-    }
-  }
-  // 주문 상세 조회 호출
-  async fetchAndShowOrderDetails(orderCode) {
-    this.showCustomLoading('cs', '주문 내역을 불러오는 중입니다...', 'dots');
-    try {
-      const res = await fetch('/api/orders/details', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(getCSRFToken() ? { 'X-CSRFToken': getCSRFToken() } : {})
-        },
-        body: JSON.stringify({
-          order_code: String(orderCode),
-          user_id: this.userId
-        }),
-        credentials: 'include'
-      });
-
-      const data = await res.json();
-
-      if (!res.ok || !data || !Array.isArray(data.items) || data.items.length === 0) {
-        this.addMessage('해당 주문의 상세 내역을 찾지 못했어요.', 'bot', true);
-        return;
+      // hjs 수정: 폴백 제거, 모듈로만 렌더
+      if (window.ChatCS && typeof ChatCS.renderOrderDetailsBubble === 'function') {
+        ChatCS.renderOrderDetailsBubble(this, data);
       }
-
-      // 배송문의 상태를 data 객체에 추가하여 전달
-      data.isDeliveryInquiry = this.isCurrentlyDeliveryInquiry;
-      this.renderOrderDetailsBubble(data);
     } catch (err) {
       console.error('order details error:', err);
       this.addMessage('주문 내역을 불러오던 중 오류가 발생했어요.', 'bot', true);
@@ -1554,25 +1081,23 @@ renderEvidenceResultBubble(data, ctx){
     }
   }
 
-  // 🔁 기존 chat.js의 동일 함수 자리에 그대로 교체
+  // 주문 상세 말풍선: 배송문의면 "사진 업로드" 버튼 제거
   renderOrderDetailsBubble(data) {
-
-    const code   = this.escapeHtml(String(data.order_code || ''));
-    const date   = this.escapeHtml(data.order_date || '');
+    const code = this.escapeHtml(String(data.order_code || ''));
+    const date = this.escapeHtml(data.order_date || '');
     const status = this.escapeHtml(data.order_status || '');
+    
+    // 배송문의 여부 판단 (서버 데이터 또는 클래스 속성에서 확인)
+    const isDelivery = data.isDeliveryInquiry || data.allow_evidence === false || data.category === '배송' || data.list_type === 'delivery';
 
-    // 배송문의 여부
-    const isDelivery = data.isDeliveryInquiry || data.allow_evidence === false
-                    || data.category === '배송' || data.list_type === 'delivery';
-
-    // 라인아이템 렌더
     const rows = (data.items || []).map((it, idx) => {
       const rawName = it.product || it.name || '';
-      const name  = this.escapeHtml(rawName);
-      const qty   = Number(it.quantity ?? it.qty ?? 0);
-      const price = Number(it.price ?? it.unit_price ?? 0);
-      const line  = price * qty;
-
+      const name = this.escapeHtml(rawName);
+      const qty = Number(it.quantity || it.qty || 0);
+      const price = Number(it.price || it.unit_price || 0);
+      const line = price * qty;
+      
+      // 배송문의가 아닌 경우에만 증빙 컬럼과 버튼 추가
       const evidenceCell = isDelivery ? '' : `
         <td class="py-1 text-center">
           <button class="evidence-upload-btn px-2 py-1 text-xs border rounded hover:bg-blue-50"
@@ -1580,60 +1105,57 @@ renderEvidenceResultBubble(data, ctx){
             <i class="fas fa-camera mr-1"></i>사진 업로드
           </button>
         </td>`;
-
+      
       return `
-        <tr class="border-b order-item-row" data-product="${name}" data-qty="${qty}">
-          <td class="py-1 pr-3 text-gray-800">${idx + 1}.</td>
-          <td class="py-1 pr-3 text-gray-800">${name}</td>
-          <td class="py-1 pr-3 text-right">${this.formatPrice(price)}원</td>
-          <td class="py-1 pr-3 text-right">${qty}</td>
-          <td class="py-1 text-right font-medium">${this.formatPrice(line)}원</td>
-          ${evidenceCell}
-        </tr>`;
+      <tr class="border-b order-item-row" data-product="${name}" data-qty="${qty}">
+        <td class="py-1 pr-3 text-gray-800">${idx + 1}.</td>
+        <td class="py-1 pr-3 text-gray-800">${name}</td>
+        <td class="py-1 pr-3 text-right">${this.formatPrice(price)}원</td>
+        <td class="py-1 pr-3 text-right">${qty}</td>
+        <td class="py-1 text-right font-medium">${this.formatPrice(line)}원</td>
+        ${evidenceCell}
+      </tr>
+    `;
     }).join('');
 
-    // ✅ 수정: DB에서 직접 가져온 값만 사용 (계산하지 않음)
-    const subtotal = Number(data.subtotal ?? data.order?.subtotal ?? 0);
-    const discount = Number(data.discount_amount ?? data.order?.discount_amount ?? 0);
-    const shipping = Number(data.shipping_fee ?? data.order?.shipping_fee ?? 0);
-    const total = Number(data.total_price ?? data.order?.total_price ?? 0);
-
+    const subtotal = Number(data.subtotal || data.total_price || 0);
+    const total    = Number(data.total || subtotal);
+    const discount = Math.max(0, Number(data.discount || 0));
+    
+    // 테이블 헤더에서도 배송문의면 증빙 컬럼 제거
     const evidenceHeader = isDelivery ? '' : '<th class="text-center">증빙</th>';
     const evidenceNotice = isDelivery ? '' : '<div class="mt-2 text-xs text-gray-500">* 환불/교환하려는 상품의 <b>사진 업로드</b> 버튼을 눌러 증빙 이미지를 올려주세요.</div>';
 
     const html = `
-      <div class="order-details-bubble" data-order-code="${code}">
-        <div class="mb-2 font-semibold text-gray-800">주문 #${code}</div>
-        <div class="text-xs text-gray-500 mb-2">${date}${status ? ` · 상태: ${status}` : ''}</div>
+    <div class="order-details-bubble" data-order-code="${code}">
+      <div class="mb-2 font-semibold text-gray-800">주문 #${code}</div>
+      <div class="text-xs text-gray-500 mb-2">${date}${status ? ` · 상태: ${status}` : ''}</div>
+      <div class="rounded-lg border overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-gray-50">
+            <tr>
+              <th class="text-left py-2 pl-3">#</th>
+              <th class="text-left">상품명</th>
+              <th class="text-right">단가</th>
+              <th class="text-right">수량</th>
+              <th class="text-right">금액</th>
+              ${evidenceHeader}
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+      ${evidenceNotice}
+      <div class="mt-2 text-sm">
+        <div class="flex justify-between"><span class="text-gray-600">상품 합계</span><span class="font-medium">${this.formatPrice(subtotal)}원</span></div>
+        ${discount > 0 ? `<div class="flex justify-between"><span class="text-gray-600">할인</span><span class="font-medium">- ${this.formatPrice(discount)}원</span></div>` : ''}
+        <div class="flex justify-between mt-1"><span class="font-semibold">총 결제금액</span><span class="font-bold text-blue-600">${this.formatPrice(total)}원</span></div>
+      </div>
+    </div>
+  `;
 
-        <div class="rounded-lg border overflow-hidden">
-          <table class="w-full text-sm">
-            <thead class="bg-gray-50">
-              <tr>
-                <th class="text-left py-2 pl-3">#</th>
-                <th class="text-left">상품명</th>
-                <th class="text-right">단가</th>
-                <th class="text-right">수량</th>
-                <th class="text-right">금액</th>
-                ${evidenceHeader}
-              </tr>
-            </thead>
-            <tbody>${rows}</tbody>
-          </table>
-        </div>
-
-        <div class="mt-2 text-sm">
-          <div class="flex justify-between"><span class="text-gray-600">상품 합계</span><span class="font-medium">${this.formatPrice(subtotal)}원</span></div>
-          <div class="flex justify-between"><span class="text-gray-600">배송비</span><span class="font-medium">${this.formatPrice(shipping)}원</span></div>
-          <div class="flex justify-between"><span class="text-gray-600">할인</span><span class="font-medium text-red-600">- ${this.formatPrice(discount)}원</span></div>
-          <div class="flex justify-between mt-1 pt-1 border-t border-gray-200"><span class="font-semibold">총 결제금액</span><span class="font-bold text-blue-600">${this.formatPrice(total)}원</span></div>
-        </div>
-
-        ${evidenceNotice}
-      </div>`;
     this.addMessage(html, 'bot');
   }
-
 }
 
 document.addEventListener('DOMContentLoaded', () => { new ChatBot(); });

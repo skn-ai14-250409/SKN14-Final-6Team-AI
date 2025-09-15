@@ -70,8 +70,6 @@ class DjangoAuthManager:
                 
                 # 사용자 ID 생성
                 user_id = f"user_{uuid.uuid4().hex[:8]}"
-                phone = user_data.get('phone_num')
-                print('user_phone_num: ',type(phone), phone)
                 # userinfo_tbl에 기본 정보 저장
                 cursor.execute("""
                     INSERT INTO userinfo_tbl (user_id, name, birth_date, email, phone_num, address, post_num)

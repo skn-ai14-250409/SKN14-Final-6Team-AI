@@ -27,24 +27,18 @@
                         </a>
                     </div>
                 </div>
-                <nav class="hidden md:block">
-                    <div class="ml-10 flex items-baseline space-x-4">
-                        <a href="/" class="text-gray-600 hover:text-green-600 px-3 py-2 rounded-md text-sm font-medium">홈</a>
-                        
-                        <!-- 네비게이션 버튼 추가 -->
-                        <div class="flex items-center space-x-2 mr-4">
-                            <button id="navChatbot" class="nav-btn px-4 py-2 bg-green-600 text-white rounded-lg font-medium transition duration-300 hover:bg-green-700" onclick="navigateToPage('/chat')">
-                                <i class="fas fa-robot mr-2"></i>챗봇
-                            </button>
-                            <button id="navMypage" class="nav-btn active px-4 py-2 bg-green-600 bg-opacity-20 text-green-600 rounded-lg font-medium transition duration-300 border-2 border-green-600">
-                                <i class="fas fa-user mr-2"></i>마이페이지
-                            </button>
-                        </div>
-                        
-                        <a href="/membership" class="text-gray-600 hover:text-green-600 px-3 py-2 rounded-md text-sm font-medium">멤버십</a>
-                        <button onclick="logout()" class="text-gray-600 hover:text-red-600 px-3 py-2 rounded-md text-sm font-medium">로그아웃</button>
-                    </div>
-                </nav>
+                <!-- chat.html과 동일한 네비게이션 구조 -->
+                <div class="flex items-center space-x-2">
+                    <button id="navChatbot" class="nav-btn px-4 py-2 bg-green-600 text-white rounded-lg font-medium transition duration-300 hover:bg-green-700" onclick="navigateToPage('/chat')">
+                        <i class="fas fa-robot mr-2"></i>챗봇
+                    </button>
+                    <button id="navMypage" class="nav-btn active px-4 py-2 bg-green-600 bg-opacity-20 text-green-600 rounded-lg font-medium transition duration-300 border-2 border-green-600">
+                        <i class="fas fa-user mr-2"></i>마이페이지
+                    </button>
+                </div>
+                <div>
+                    <button onclick="logout()" class="text-gray-600 hover:text-red-600 px-3 py-2 rounded-md text-sm font-medium">로그아웃</button>
+                </div>
             </div>
         </div>
     </header>
@@ -54,7 +48,7 @@
         <div class="max-w-7xl mx-auto">
             <div class="flex">
                 <!-- 왼쪽 사이드바 -->
-                <div class="w-80 bg-green-500 min-h-screen">
+                <div class="w-80 bg-green-500 min-h-screen flex-shrink-0">
                     <div class="p-8">
                         <!-- 사용자 정보 섹션 -->
                         <div class="text-center mb-8">
@@ -98,7 +92,7 @@
                         <!-- 환영 화면 (기본) -->
                         <div id="content-welcome" class="content-section active flex items-center justify-center h-full">
                             <div class="text-center">
-                                <h1 class="text-4xl font-bold text-gray-600 mb-4">홍길동 님</h1>
+                                <h1 class="text-4xl font-bold text-gray-600 mb-4"><span class="welcome-name">회원</span> 님</h1>
                                 <h2 class="text-5xl font-bold text-gray-800">안녕하세요!</h2>
                             </div>
                         </div>
@@ -109,8 +103,8 @@
                                 <h2 class="text-3xl font-bold text-gray-800 mb-2">주문내역</h2>
                                 <p class="text-gray-600">최근 주문한 상품들을 확인하세요.</p>
                             </div>
-                            
-                            <div class="space-y-4">
+                            <div id="ordersList" class="space-y-4"></div>
+                            <div class="space-y-4 hidden">
                                 <!-- 주문내역 샘플 -->
                                 <div class="bg-gray-50 rounded-lg p-6 border border-gray-200">
                                     <div class="flex justify-between items-start mb-4">
@@ -172,8 +166,8 @@
                                 <h2 class="text-3xl font-bold text-gray-800 mb-2">배송내역</h2>
                                 <p class="text-gray-600">배송 상태를 실시간으로 확인하세요.</p>
                             </div>
-                            
-                            <div class="space-y-6">
+                            <div id="deliveryList" class="space-y-6"></div>
+                            <div class="space-y-6 hidden">
                                 <!-- 배송 추적 카드 -->
                                 <div class="bg-gradient-to-r from-green-50 to-blue-50 rounded-lg p-6 border border-green-200">
                                     <div class="flex items-center justify-between mb-4">
@@ -243,8 +237,8 @@
                                 <h2 class="text-3xl font-bold text-gray-800 mb-2">채팅 히스토리</h2>
                                 <p class="text-gray-600">AI 챗봇과의 대화 내역을 확인하세요.</p>
                             </div>
-                            
-                            <div class="space-y-4">
+                            <div id="chatHistory" class="space-y-4"></div>
+                            <div class="space-y-4 hidden">
                                 <!-- 채팅 세션 -->
                                 <div class="bg-gray-50 rounded-lg p-6 border border-gray-200">
                                     <div class="flex justify-between items-center mb-4">
@@ -318,76 +312,9 @@
                                 <p class="text-gray-600">AI가 추천해준 레시피들을 모아보세요.</p>
                             </div>
                             
+                            <!-- hjs 수정: 더미 카드 제거, 실제 즐겨찾기 데이터 렌더 대상 컨테이너 -->
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <!-- 레시피 카드 -->
-                                <div class="bg-white rounded-lg shadow-md overflow-hidden border border-gray-200">
-                                    <div class="h-48 bg-gradient-to-br from-red-100 to-orange-100 flex items-center justify-center">
-                                        <i class="fas fa-utensils text-6xl text-red-400"></i>
-                                    </div>
-                                    <div class="p-6">
-                                        <h3 class="font-semibold text-xl text-gray-800 mb-2">토마토 파스타</h3>
-                                        <p class="text-gray-600 text-sm mb-4">신선한 토마토로 만드는 이탈리안 파스타</p>
-                                        <div class="flex items-center justify-between">
-                                            <div class="flex items-center text-sm text-gray-500">
-                                                <i class="fas fa-clock mr-1"></i>
-                                                <span>30분</span>
-                                            </div>
-                                            <div class="flex items-center text-sm text-gray-500">
-                                                <i class="fas fa-user mr-1"></i>
-                                                <span>2인분</span>
-                                            </div>
-                                        </div>
-                                        <button class="w-full mt-4 bg-green-500 text-white py-2 px-4 rounded-lg hover:bg-green-600 transition duration-200">
-                                            재료 주문하기
-                                        </button>
-                                    </div>
-                                </div>
-                                
-                                <div class="bg-white rounded-lg shadow-md overflow-hidden border border-gray-200">
-                                    <div class="h-48 bg-gradient-to-br from-green-100 to-blue-100 flex items-center justify-center">
-                                        <i class="fas fa-leaf text-6xl text-green-400"></i>
-                                    </div>
-                                    <div class="p-6">
-                                        <h3 class="font-semibold text-xl text-gray-800 mb-2">유기농 샐러드</h3>
-                                        <p class="text-gray-600 text-sm mb-4">건강한 유기농 야채로 만드는 신선한 샐러드</p>
-                                        <div class="flex items-center justify-between">
-                                            <div class="flex items-center text-sm text-gray-500">
-                                                <i class="fas fa-clock mr-1"></i>
-                                                <span>15분</span>
-                                            </div>
-                                            <div class="flex items-center text-sm text-gray-500">
-                                                <i class="fas fa-user mr-1"></i>
-                                                <span>1인분</span>
-                                            </div>
-                                        </div>
-                                        <button class="w-full mt-4 bg-green-500 text-white py-2 px-4 rounded-lg hover:bg-green-600 transition duration-200">
-                                            재료 주문하기
-                                        </button>
-                                    </div>
-                                </div>
-                                
-                                <div class="bg-white rounded-lg shadow-md overflow-hidden border border-gray-200">
-                                    <div class="h-48 bg-gradient-to-br from-yellow-100 to-orange-100 flex items-center justify-center">
-                                        <i class="fas fa-soup text-6xl text-yellow-500"></i>
-                                    </div>
-                                    <div class="p-6">
-                                        <h3 class="font-semibold text-xl text-gray-800 mb-2">김치찌개</h3>
-                                        <p class="text-gray-600 text-sm mb-4">정통 한국 김치찌개 레시피</p>
-                                        <div class="flex items-center justify-between">
-                                            <div class="flex items-center text-sm text-gray-500">
-                                                <i class="fas fa-clock mr-1"></i>
-                                                <span>45분</span>
-                                            </div>
-                                            <div class="flex items-center text-sm text-gray-500">
-                                                <i class="fas fa-user mr-1"></i>
-                                                <span>3인분</span>
-                                            </div>
-                                        </div>
-                                        <button class="w-full mt-4 bg-green-500 text-white py-2 px-4 rounded-lg hover:bg-green-600 transition duration-200">
-                                            재료 주문하기
-                                        </button>
-                                    </div>
-                                </div>
+                                <div class="col-span-2 text-gray-500" id="savedRecipesPlaceholder">저장한 레시피가 없습니다.</div>
                             </div>
                             
                             <div class="text-center mt-8">
@@ -420,6 +347,15 @@
                 });
                 
                 if (response.ok) {
+                    const u = JSON.parse(localStorage.getItem('user_info')||'{}');
+                    const uid = u.user_id || '';
+                    localStorage.removeItem('access_token');
+                    if (uid){
+                        localStorage.removeItem(`chat_messages_${uid}`);
+                        localStorage.removeItem(`chat_session_${uid}`);
+                        localStorage.removeItem(`chat_pending_message_${uid}`);
+                    }
+                    localStorage.removeItem('user_info');
                     window.location.href = '/';
                 } else {
                     console.error('로그아웃 실패');

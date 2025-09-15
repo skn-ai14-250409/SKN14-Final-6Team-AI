@@ -8,6 +8,10 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link href="/static/css/chat.css" rel="stylesheet">
     <link href="/static/css/navigation.css" rel="stylesheet">
+    <!-- hjs 수정: 마이페이지 탭 통합을 위해 mypage.css 추가 -->
+    <link href="/static/css/mypage.css" rel="stylesheet">
+    <!-- hjs 수정: 안전한 사용자 ID 전달용 메타 -->
+    <meta name="current-user-id" content="{{ current_user if current_user else '' }}">
 </head>
 <body class="bg-gray-50 font-sans">
     <!-- 헤더 -->
@@ -25,10 +29,10 @@
         
         <!-- 중앙: 챗봇 / 마이페이지 버튼 -->
         <div class="flex items-center space-x-2">
-            <button id="navChatbot" class="nav-btn active px-4 py-2 bg-green-600 bg-opacity-20 text-green-600 rounded-lg font-medium transition duration-300 border-2 border-green-600">
+            <button id="navChatbot" onclick="switchTopTab('chatbot')" class="nav-btn active px-4 py-2 bg-green-600 text-white rounded-lg font-medium transition duration-300 hover:bg-green-700">
             <i class="fas fa-robot mr-2"></i>챗봇
             </button>
-            <button id="navMypage" class="nav-btn px-4 py-2 bg-green-600 text-white rounded-lg font-medium transition duration-300 hover:bg-green-700" onclick="navigateToPage('/mypage')">
+            <button id="navMypage" onclick="switchTopTab('mypage')" class="nav-btn px-4 py-2 bg-white text-green-600 rounded-lg font-medium transition duration-300 border-2 border-green-600 hover:bg-gray-50">
             <i class="fas fa-user mr-2"></i>마이페이지
             </button>
         </div>
@@ -46,7 +50,7 @@
     <!-- 메인 컨텐츠: 3컬럼 레이아웃 -->
     <div class="min-h-screen bg-gray-50">
         <div class="max-w-full mx-auto">
-            <div class="chat-layout flex">
+            <div id="chat-view" class="chat-layout flex">
                 <!-- 좌측: 레시피/즐겨찾기 패널 -->
                 <div class="left-panel">
                     <!-- 탭 버튼 -->
@@ -90,7 +94,7 @@
                     <div class="chat-container" id="chatContainer">
                         <!-- 사용자 이름 -->
                         <div class="chat-header">
-                            <h2 class="text-2xl font-bold text-gray-800">{{ name }} 님</h2>
+                            <h2 class="text-2xl font-bold text-gray-800">{{ name }} 님 <span id="membershipBadge" class="align-middle ml-2 text-xs"></span></h2>
                             <div class="flex items-center space-x-4 mt-2">
                                 <div id="sessionInfo" class="text-xs text-gray-500"></div>
                                 <button id="clearChat" class="text-xs text-red-500 hover:underline">
@@ -189,6 +193,11 @@
                             <i class="fas fa-shopping-cart mr-2 text-green-500"></i>장바구니
                             <span id="cartCount" class="ml-2 px-2 py-1 bg-green-100 text-green-600 rounded-full text-sm">0</span>
                         </h3>
+                        <!-- hjs 수정: 장바구니 선택 툴바(전체 선택/해제, 선택 삭제) -->
+                        <div class="flex items-center gap-2 mb-2">
+                            <button id="cartSelectAll" class="px-2 py-1 text-xs border rounded hover:bg-gray-50">전체 선택</button>
+                            <button id="cartSelectNone" class="px-2 py-1 text-xs border rounded hover:bg-gray-50">전체 해제</button>
+                        </div>
                         
                         <div id="cartItems">
                             <!-- 장바구니 아이템들이 동적으로 렌더링됩니다 -->
@@ -219,20 +228,159 @@
                     </div>
                 </div>
             </div>
+
+            <!-- hjs 수정: 상위 탭 컨테이너 - 마이페이지 뷰 (초기 hidden) -->
+            <div id="mypage-view" class="hidden">
+                <div class="flex">
+                    <!-- 왼쪽 사이드바 -->
+                    <div class="w-80 bg-green-500 min-h-screen flex-shrink-0">
+                        <div class="p-8">
+                            <div class="text-center mb-6">
+                                <div class="w-20 h-20 bg-gray-600 rounded-full mx-auto mb-3 flex items-center justify-center">
+                                    <i class="fas fa-user text-white text-2xl"></i>
+                                </div>
+                                <!-- hjs 수정: 마이페이지 상단에 사용자명 + 멤버십 배지 표시 -->
+                                <div class="flex items-center justify-center gap-2 mb-1">
+                                    <span class="text-white font-bold">{{ name }}님</span>
+                                    <span id="mypageMembershipBadge" class="text-xs"></span>
+                                </div>
+                                <h2 class="text-xl font-bold text-white mb-2">마이페이지</h2>
+                            </div>
+                            <div class="space-y-3">
+                                <div class="menu-item flex items-center text-white py-3 px-4 hover:bg-green-400 rounded-lg cursor-pointer transition duration-200" data-menu="orders" onclick="showContent('orders')">
+                                    <i class="fas fa-clock text-lg mr-4"></i>
+                                    <span class="font-medium">주문내역 확인</span>
+                                </div>
+                                <div class="menu-item flex items-center text-white py-3 px-4 hover:bg-green-400 rounded-lg cursor-pointer transition duration-200" data-menu="delivery" onclick="showContent('delivery')">
+                                    <i class="fas fa-truck text-lg mr-4"></i>
+                                    <span class="font-medium">배송내역 확인</span>
+                                </div>
+                                <div class="menu-item flex items-center text-white py-3 px-4 hover:bg-green-400 rounded-lg cursor-pointer transition duration-200" data-menu="chat" onclick="showContent('chat')">
+                                    <i class="fas fa-comments text-lg mr-4"></i>
+                                    <span class="font-medium">채팅 히스토리</span>
+                                </div>
+                                <div class="menu-item flex items-center text-white py-3 px-4 hover:bg-green-400 rounded-lg cursor-pointer transition duration-200" data-menu="recipes" onclick="showContent('recipes')">
+                                    <i class="fas fa-utensils text-lg mr-4"></i>
+                                    <span class="font-medium">저장한 레시피</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- 콘텐츠 영역 -->
+                    <div class="flex-1 p-8">
+                        <div id="content-orders" class="content-section active">
+                            <div class="mb-6">
+                                <h2 class="text-3xl font-bold text-gray-800 mb-2">주문 내역</h2>
+                                <p class="text-gray-600">최근 주문을 확인하세요.</p>
+                            </div>
+                            <div id="ordersList" class="space-y-4"></div>
+                        </div>
+                        <div id="content-delivery" class="content-section hidden">
+                            <div class="mb-6">
+                                <h2 class="text-3xl font-bold text-gray-800 mb-2">배송 내역</h2>
+                                <p class="text-gray-600">배송 상태를 확인하세요.</p>
+                            </div>
+                            <div id="deliveryList" class="space-y-4"></div>
+                        </div>
+                        <div id="content-chat" class="content-section hidden">
+                            <div class="mb-6">
+                                <h2 class="text-3xl font-bold text-gray-800 mb-2">채팅 히스토리</h2>
+                                <p class="text-gray-600">AI 챗봇과의 대화 내역을 확인하세요.</p>
+                            </div>
+                            <div id="chatHistory" class="space-y-4"></div>
+                        </div>
+                        <div id="content-recipes" class="content-section hidden">
+                            <div class="mb-6">
+                                <h2 class="text-3xl font-bold text-gray-800 mb-2">저장한 레시피</h2>
+                                <p class="text-gray-600">즐겨찾기한 레시피 목록입니다.</p>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
     <!-- 주문 정보 섹션 (숨겨진 상태) -->
-    <div id="orderSection" class="hidden">
-        <div id="orderInfo"></div>
-    </div>
+    <!-- <div id="orderSection" class="hidden"> -->
+        <!-- <div id="orderInfo"></div> -->
+    <!-- </div> -->
 
     <!-- JavaScript -->
-    <script src="/static/js/navigation.js"></script>
-    <script src="/static/js/chat_ver2.js"></script>
+    <!-- hjs 수정: 단일 페이지 탭 모드에서는 navigation.js를 사용하지 않습니다. -->
+    <script src="/static/js/utils.js"></script>
+    <script src="/static/js/ui-helpers.js"></script>
+    <!-- hjs 수정: 장바구니/결제 모듈 분리 -->
+    <script src="/static/js/chat-mod-cart.js"></script>
+    <!-- hjs 수정: 제품/레시피/음성/업로드/CS 모듈 로드 -->
+    <script src="/static/js/chat-mod-products.js"></script>
+    <script src="/static/js/chat-mod-recipes.js"></script>
+    <script src="/static/js/chat-mod-voice.js"></script>
+    <script src="/static/js/chat-mod-upload.js"></script>
+    <script src="/static/js/chat-mod-cs.js"></script>
+    <!-- hjs 수정: CS 증빙 전용 모듈 로드 -->
+    <script src="/static/js/cs_evidence.js"></script>
+    <script src="/static/js/markdown.js"></script>
+    <!-- hjs 수정: 전역 사용자 ID 주입(메타에서 안전하게 읽기) -->
+    <script>
+        (function(){
+            var meta = document.querySelector('meta[name="current-user-id"]');
+            var uid = meta && meta.content ? meta.content.trim() : '';
+            window.CURRENT_USER_ID = uid ? uid : null;
+            // hjs 수정: 멤버십 배지 표기
+            function badgeHtml(tier){
+                var t = String(tier||'').toLowerCase();
+                if (t==='gold')   return '<span class="inline-flex items-center px-2 py-0.5 rounded bg-yellow-100 text-yellow-700">GOLD</span>';
+                if (t==='premium')return '<span class="inline-flex items-center px-2 py-0.5 rounded bg-purple-100 text-purple-700">PREMIUM</span>';
+                if (t==='basic')  return '<span class="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-gray-700">BASIC</span>';
+                return '';
+            }
+            fetch('/api/profile/get', { credentials:'include' })
+              .then(function(r){ return r.json(); })
+              .then(function(d){
+                  var tier = (d && d.user && d.user.membership) ? d.user.membership : null;
+                  if (!tier) return;
+                  var chatBadge = document.getElementById('membershipBadge');
+                  var myBadge = document.getElementById('mypageMembershipBadge');
+                  if (chatBadge) chatBadge.innerHTML = badgeHtml(tier);
+                  if (myBadge) myBadge.innerHTML = badgeHtml(tier);
+              }).catch(function(){});
+        })();
+    </script>
+    <script src="/static/js/chat.js"></script>
+    <!-- hjs 수정: 마이페이지 스크립트 포함 (탭 모드 가드 사용) -->
+    <script src="/static/js/mypage.js"></script>
     
     <!-- 탭 기능 추가 -->
     <script>
+        // hjs 수정: 상단 챗봇/마이페이지 전환
+        function switchTopTab(target){
+            console.log('switchTopTab 호출됨, target:', target);
+            const chatView = document.getElementById('chat-view');
+            const myView = document.getElementById('mypage-view');
+            const btnChat = document.getElementById('navChatbot');
+            const btnMy = document.getElementById('navMypage');
+            console.log('버튼 요소들:', btnChat, btnMy);
+            if (target === 'mypage'){
+                chatView.classList.add('hidden');
+                myView.classList.remove('hidden');
+                // hjs 수정: 버튼 스타일 동기화 (마이페이지 선택시 진한 녹색)
+                btnChat.className = 'nav-btn px-4 py-2 bg-white text-green-600 border-2 border-green-600 rounded-lg font-medium transition duration-300 hover:bg-gray-50';
+                btnMy.className = 'nav-btn active px-4 py-2 bg-green-600 text-white rounded-lg font-medium transition duration-300 hover:bg-green-700';
+                console.log('마이페이지 선택됨 - 챗봇 버튼 클래스:', btnChat.className);
+                console.log('마이페이지 선택됨 - 마이페이지 버튼 클래스:', btnMy.className);
+                try { showContent('orders'); } catch(_){ }
+            } else {
+                myView.classList.add('hidden');
+                chatView.classList.remove('hidden');
+                // hjs 수정: 버튼 스타일 동기화 (챗봇 선택시 진한 녹색)
+                btnMy.className = 'nav-btn px-4 py-2 bg-white text-green-600 border-2 border-green-600 rounded-lg font-medium transition duration-300 hover:bg-gray-50';
+                btnChat.className = 'nav-btn active px-4 py-2 bg-green-600 text-white rounded-lg font-medium transition duration-300 hover:bg-green-700';
+                console.log('챗봇 선택됨 - 마이페이지 버튼 클래스:', btnMy.className);
+                console.log('챗봇 선택됨 - 챗봇 버튼 클래스:', btnChat.className);
+            }
+        }
         // 탭 전환 기능
         function initializeTabs() {
             // 좌측 패널 탭 (레시피/즐겨찾기)
@@ -314,7 +462,8 @@
 
             recipes.forEach(recipe => {
                 const card = document.createElement('div');
-                card.className = 'recipe-card bg-white rounded-lg p-3 border hover:shadow-md transition cursor-pointer mb-2';
+                // hjs 수정: 별 버튼 하단 고정 위해 relative 추가
+                card.className = 'recipe-card relative bg-white rounded-lg p-3 border hover:shadow-md transition cursor-pointer mb-2';
                 card.innerHTML = `
                     <div class="recipe-card-body">
                         <h4 class="font-semibold text-gray-800 mb-2">${recipe.title}</h4>
@@ -329,7 +478,8 @@
                             </button>
                         </div>
                     </div>
-                    <button class="favorite-btn absolute top-3 right-3" onclick="toggleFavorite(this)">
+                    <!-- hjs 수정: 즐겨찾기 버튼을 좌측 하단으로 이동 -->
+                    <button class="favorite-btn absolute bottom-3 left-3" onclick="toggleFavorite(this)">
                         <i class="fas fa-star text-gray-300"></i>
                     </button>
                 `;
@@ -476,17 +626,20 @@
             }
         }
 
-        // DOM 로드 완료 시 초기화
+        // hjs 수정: DOM 로드 시 샘플 로직 제거, 실제 UI만 초기화
         document.addEventListener('DOMContentLoaded', () => {
             initializeTabs();
-            loadSampleData();
-            
-            // 결제 버튼 이벤트
-            document.getElementById('checkoutButton').addEventListener('click', () => {
-                if (sampleCart.length > 0) {
-                    alert(`총 ${sampleCart.length}개 상품 결제를 진행합니다.`);
-                }
-            });
+            // hjs 수정: 카트 선택 툴바 이벤트 바인딩
+            const selectAll = document.getElementById('cartSelectAll');
+            const selectNone = document.getElementById('cartSelectNone');
+            if (selectAll){ selectAll.addEventListener('click', ()=>{
+                document.querySelectorAll('.cart-select').forEach(cb => { cb.checked = true; });
+                if (window._chatbot && window._chatbot.recalculateCartTotals) window._chatbot.recalculateCartTotals();
+            }); }
+            if (selectNone){ selectNone.addEventListener('click', ()=>{
+                document.querySelectorAll('.cart-select').forEach(cb => { cb.checked = false; });
+                if (window._chatbot && window._chatbot.recalculateCartTotals) window._chatbot.recalculateCartTotals();
+            }); }
         });
     </script>
     
@@ -494,29 +647,35 @@
     <script>
         
          async function logout() {
-            try {
-                const token = localStorage.getItem('access_token');
-                const headers = {
-                'Content-Type': 'application/json'
-                };
-
-                if (token) {
-                headers['Authorization'] = `Bearer ${token}`;
-                }
-
-                const response = await fetch('/auth/logout', {
-                method: 'POST',
-                headers: headers,
-                credentials: 'include'
-                });
-                if (response.ok) { 
+            // hjs 수정: 간단한 폴백 추가 — /auth/logout 실패 시 /auth/logout-beacon 호출
+            const clearLocal = () => {
+              try {
+                const u = JSON.parse(localStorage.getItem('user_info')||'{}');
+                const uid = u.user_id || '';
                 localStorage.removeItem('access_token');
-                localStorage.removeItem('user_info');
-                window.location.href = '/'; 
+                if (uid){
+                  localStorage.removeItem(`chat_messages_${uid}`);
+                  localStorage.removeItem(`chat_session_${uid}`);
+                  localStorage.removeItem(`chat_pending_message_${uid}`);
                 }
-                else { console.error('로그아웃 실패:', response.status, response.statusText); }
-            } catch (error) { console.error('로그아웃 오류:', error); }
-    }
+                localStorage.removeItem('user_info');
+              } catch(_) {}
+            };
+            try {
+              const token = localStorage.getItem('access_token');
+              const headers = { 'Content-Type': 'application/json' };
+              if (token) headers['Authorization'] = `Bearer ${token}`;
+              const res = await fetch('/auth/logout', { method:'POST', headers, credentials:'include' });
+              if (res.ok) { clearLocal(); window.location.href='/'; return; }
+              // 폴백: 권한 없이 쿠키만 제거
+              await fetch('/auth/logout-beacon', { method:'POST', credentials:'include' });
+              clearLocal(); window.location.href='/';
+            } catch (e) {
+              console.error('로그아웃 오류:', e);
+              try { await fetch('/auth/logout-beacon', { method:'POST', credentials:'include' }); } catch(_) {}
+              clearLocal(); window.location.href='/';
+            }
+         }
     </script>
 </body>
 </html>

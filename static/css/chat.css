@@ -142,10 +142,9 @@ body {
     color: rgba(255, 255, 255, 0.8);
 }
 
+/* hjs 수정: 위치 지정(top/right) 제거 — 각 카드에서 bottom/left 등 개별 지정 */
 .favorite-btn {
     position: absolute;
-    top: 16px;
-    right: 16px;
     background: none;
     border: none;
     font-size: 18px;
@@ -153,6 +152,7 @@ body {
     transition: all 0.2s ease;
     padding: 4px;
     border-radius: 4px;
+    z-index: 10;
 }
 
 .favorite-btn:hover {
@@ -206,6 +206,17 @@ body {
 .message.user-message {
     flex-direction: row-reverse;
 }
+
+/* 카드 레이아웃 정렬 보강: 텍스트 영역(파란 박스) + 버튼 영역(빨간 박스) 고정 */
+.product-card, .ingredient-card { 
+    display:flex; 
+    align-items: center;
+    justify-content: space-between;
+    flex-direction:column; 
+    height:100%; 
+}
+.product-card .product-info, .ingredient-card .product-info { text-align: left; flex-grow: 1;min-height: 64px; margin-right: auto;}
+.product-card .card-footer, .ingredient-card .card-footer { display:flex; justify-content: flex-end; margin-left:auto; }
 
 .message-avatar {
     width: 40px;

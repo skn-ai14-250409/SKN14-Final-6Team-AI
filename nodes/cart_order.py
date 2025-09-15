@@ -102,6 +102,40 @@ def update_cart_item(user_id: str, product_name: str, quantity: int) -> Dict[str
     # 최종적으로 변경된 장바구니 상태를 다시 조회해서 반환
     temp_state = ChatState(user_id=user_id)
     return view_cart(temp_state)
+
+def _get_cart_items_for_products(user_id: str, product_names: List[str]) -> List[Dict[str, Any]]:
+    """사용자 장바구니에서 지정한 상품들만 name, qty, unit_price를 가져옵니다."""
+    if not product_names:
+        return []
+    conn = get_db_connection()
+    if not conn:
+        return []
+    try:
+        placeholders = ",".join(["%s"] * len(product_names))
+        sql = (
+            f"SELECT product AS name, quantity AS qty, unit_price "
+            f"FROM cart_tbl WHERE user_id = %s AND product IN ({placeholders})"
+        )
+        params = [user_id] + product_names
+        with conn.cursor(dictionary=True) as cursor:
+            cursor.execute(sql, params)
+            rows = cursor.fetchall() or []
+            items = []
+            for r in rows:
+                try:
+                    items.append({
+                        "name": r.get("name"),
+                        "qty": int(r.get("qty") or 0),
+                        "unit_price": float(r.get("unit_price") or 0.0)
+                    })
+                except Exception:
+                    continue
+            return [i for i in items if i["qty"] > 0]
+    except Error:
+        return []
+    finally:
+        if conn and conn.is_connected():
+            conn.close()
     
 def cart_manage(state: ChatState) -> Dict[str, Any]:
     """
@@ -271,6 +305,12 @@ def _get_membership_benefits(user_id: str) -> Dict[str, Any]:
             name = row.get("membership_name") or "basic"
             rate = float(row.get("discount_rate") or 0.0)
             thr = float(row.get("free_shipping_threshold") or 30000)
+            # hjs 수정: premium 등급은 무료배송(임계 0) 강제 보장
+            try:
+                if str(name).lower() == 'premium':
+                    thr = 0.0
+            except Exception:
+                pass
             return {
                 "discount_rate": rate,
                 "free_shipping_threshold": thr,
@@ -288,19 +328,26 @@ def _get_membership_benefits(user_id: str) -> Dict[str, Any]:
 def checkout(state: ChatState) -> Dict[str, Any]:
     """체크아웃 및 주문 처리 (개선된 버전 - 특정 상품 선택 지원)"""
     logger.info("체크아웃 및 주문 처리 시작")
-    
+    user_id = state.user_id or 'anonymous'
+
+    # 명시적 선택 결제 우선 처리: state.checkout.selected_names
+    selected_names = (state.checkout or {}).get("selected_names") or []
+    if selected_names:
+        selected_items = _get_cart_items_for_products(user_id, list(dict.fromkeys(selected_names)))
+        if not selected_items:
+            return {"checkout": {"error": "선택한 상품이 장바구니에 없습니다.", "confirmed": False}}
+        logger.info(f"특정 상품 결제 요청(명시): {[item['name'] for item in selected_items]}")
+        return _process_selective_checkout(state, selected_items)
+
+    # 기존 자연어 기반 추출(폴백)
     if not state.cart.get("items"):
         return {"checkout": {"error": "장바구니가 비어있습니다.", "confirmed": False}}
-    
-    # 특정 상품만 결제하고 싶은지 확인
     selected_items = _extract_selected_items_for_checkout(state)
-    
     if selected_items:
         logger.info(f"특정 상품 결제 요청: {[item['name'] for item in selected_items]}")
         return _process_selective_checkout(state, selected_items)
-    else:
-        logger.info("전체 장바구니 결제 진행")
-        return _process_full_checkout(state)
+    logger.info("전체 장바구니 결제 진행")
+    return _process_full_checkout(state)
 
 def _extract_selected_items_for_checkout(state: ChatState) -> List[Dict[str, Any]]:
     """사용자 쿼리에서 특정 상품명을 추출하여 장바구니에서 해당 상품만 반환"""
@@ -646,6 +693,38 @@ def remove_from_cart(state: ChatState) -> Dict[str, Any]:
     logger.info("장바구니 수정/제거 프로세스 시작")
     user_id = state.user_id or 'anonymous'
     query = (state.query or "").lower()
+
+    # 명시적 선택 제거: state.checkout.selected_names
+    selected_names = (state.checkout or {}).get("selected_names") or []
+    if selected_names:
+        conn = get_db_connection()
+        if not conn:
+            return {"meta": {"cart_error": "DB 연결 실패"}}
+        try:
+            with conn.cursor() as cursor:
+                if selected_names:
+                    placeholders = ",".join(["%s"] * len(selected_names))
+                    sql_delete = (
+                        f"DELETE FROM cart_tbl WHERE user_id = %s AND product IN ({placeholders})"
+                    )
+                    params = [user_id] + selected_names
+                    cursor.execute(sql_delete, params)
+                    conn.commit()
+                    message = f"선택한 {len(selected_names)}개 상품을 장바구니에서 제거했습니다."
+        except Error as e:
+            if conn:
+                conn.rollback()
+            logger.error(f"선택 제거 실패: {e}")
+            return {"meta": {"cart_error": f"오류 발생: {e}"}}
+        finally:
+            if conn and conn.is_connected():
+                conn.close()
+
+        final_cart_state = view_cart(state)
+        return {
+            "cart": final_cart_state.get('cart'),
+            "meta": {"cart_message": message}
+        }
     
     conn = get_db_connection()
     if not conn:

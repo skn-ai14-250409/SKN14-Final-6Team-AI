@@ -1,4 +1,3 @@
--- Active: 1753666109889@@127.0.0.1@3306@qook_chatbot
 -- Qook 신선식품 챗봇 데이터베이스 설정
 -- 데이터베이스 생성 및 사용자 설정
 
@@ -270,7 +269,7 @@ CREATE TABLE IF NOT EXISTS refund_tbl (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- 주문 수량을 초과하는 환불을 차단하는 트리거
-DELIMITER $$
+DELIMITER $$;
 
 CREATE TRIGGER bi_refund_qty_guard
 BEFORE INSERT ON refund_tbl
@@ -295,7 +294,7 @@ BEGIN
   IF (NEW.request_qty + refunded_qty) > ordered_qty THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Refund quantity exceeds ordered quantity';
   END IF;
-END$$
+END$$;
 
 -- 추가 부분
 -- root 로 로그인 후
