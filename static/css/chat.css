@@ -14,13 +14,13 @@ body {
 
 /* ===== 3컬럼 레이아웃 ===== */
 .chat-layout {
-    height: calc(100vh - 88px);
+    height: 100vh;
     background-color: #f9fafb;
 }
 
 /* 좌측 패널 (레시피/즐겨찾기) */
 .left-panel {
-    width: 320px;
+    width: 360px;
     background: white;
     border-right: 1px solid #e5e7eb;
     display: flex;
@@ -509,6 +509,16 @@ body {
 #clearChat[hidden],
 #orderSection[hidden] {
     display: none !important;
+}
+
+/* 정지 버튼 기본 숨김 */
+#voiceCancel {
+    display: none;
+}
+
+/* 정지 버튼 활성화 시 */
+#voiceCancel.show {
+    display: flex !important;
 }
 
 /* ===== 로딩 인디케이터 스타일 ===== */

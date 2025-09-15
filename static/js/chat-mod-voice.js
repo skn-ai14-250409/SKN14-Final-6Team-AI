@@ -7,10 +7,12 @@
       bot.isRecording = nowRecording;
       const micBtn = document.getElementById('voiceInput');
       const cancelBtn = document.getElementById('voiceCancel');
+      const submitBtn = document.querySelector('button[type="submit"]');
       const input = document.getElementById('messageInput');
       if (nowRecording){
         if (micBtn) { micBtn.classList.add('recording'); micBtn.title='녹음 중'; }
-        if (cancelBtn) cancelBtn.classList.remove('hidden');
+        if (cancelBtn) { cancelBtn.classList.remove('hidden'); cancelBtn.classList.add('show'); }
+        if (submitBtn) submitBtn.style.display = 'none'; // 전송버튼 숨김
         if (input) input.setAttribute('disabled','disabled');
         bot.canceled = false;
         const Recog = getSpeechRecognitionCtor();
@@ -20,7 +22,8 @@
         if (bot.recognition) bot.recognition.stop();
         if (bot.mediaRecorder) bot.mediaRecorder.stop();
         if (micBtn) micBtn.classList.remove('recording');
-        if (cancelBtn) cancelBtn.classList.add('hidden');
+        if (cancelBtn) { cancelBtn.classList.add('hidden'); cancelBtn.classList.remove('show'); }
+        if (submitBtn) submitBtn.style.display = 'flex'; // 전송버튼 표시
         if (input) input.removeAttribute('disabled');
       }
     },
@@ -48,9 +51,11 @@
       bot.isRecording = false;
       const micBtn = document.getElementById('voiceInput');
       const cancelBtn = document.getElementById('voiceCancel');
+      const submitBtn = document.querySelector('button[type="submit"]');
       const input = document.getElementById('messageInput');
       if (micBtn) micBtn.classList.remove('recording');
-      if (cancelBtn) cancelBtn.classList.add('hidden');
+      if (cancelBtn) { cancelBtn.classList.add('hidden'); cancelBtn.classList.remove('show'); }
+      if (submitBtn) submitBtn.style.display = 'flex'; // 전송버튼 복원
       if (input) input.removeAttribute('disabled');
     },
     startSpeechRecognition(bot, Recog){
