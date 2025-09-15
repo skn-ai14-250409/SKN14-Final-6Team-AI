@@ -7,8 +7,6 @@ let MYPAGE_USER_ID = null;
 // DOM이 로드된 후 실행
 // hjs 수정: 탭 통합 환경 가드 — mypage-view가 있을 때만 초기화
 document.addEventListener('DOMContentLoaded', function() {
-    const myRoot = document.getElementById('mypage-view');
-    if (!myRoot) return;
     console.log('마이페이지(탭) 초기화');
     initializeMenuEvents();
     resolveCurrentUser().then(uid => {
@@ -239,11 +237,16 @@ function resolveCurrentUser(){
 
 function updateWelcomeName(){
   const el = document.querySelector('.welcome-name');
-  if (!el) return;
+  const sidebarEl = document.querySelector('.sidebar-user-name');
   // 프로필 API에서 이름 가져오기
   fetch('/api/profile/get', { credentials:'include' })
     .then(r=>r.json())
-    .then(d=>{ if (d && d.success && d.user && d.user.name) el.textContent = d.user.name; });
+    .then(d=>{
+      if (d && d.success && d.user && d.user.name) {
+        if (el) el.textContent = d.user.name;
+        if (sidebarEl) sidebarEl.textContent = d.user.name;
+      }
+    });
 }
 
 // 사용자 이름 업데이트 (미래 사용)
