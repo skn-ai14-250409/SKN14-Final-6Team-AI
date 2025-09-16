@@ -52,7 +52,9 @@ def view_cart(state: ChatState) -> Dict[str, Any]:
         current_cart = {"items": cart_items, "membership": benefits.get("meta")}
         _calculate_totals(current_cart, benefits)
 
-        # 채팅용 요약 메시지 생성 (클라이언트 텍스트 렌더만 있는 경우 대비)
+        # 수정: 채팅용 요약 메시지 생성 (클라이언트 텍스트 렌더만 있는 경우 대비)
+
+        # float > int > str 변환 함수(varchar(db))
         def _fmt_price(v: float) -> str:
             try:
                 return f"{int(round(float(v))):,}"
@@ -83,7 +85,7 @@ def view_cart(state: ChatState) -> Dict[str, Any]:
             lines.append(f"💳 최종 결제금액: {_fmt_price(current_cart.get('total') or 0)}원")
             cart_message = "\n".join(lines)
 
-        # cart 요약 메시지는 '장바구니 보기/결제 확인' 의도일 때만 회신 본문으로 사용
+        # cart 요약 메시지는 '장바구니 보기/결제 확인' 의도일 때만 사용
         target = (state.route or {}).get("target") if hasattr(state, "route") else None
         if target in ("cart_view", "checkout"):
             return {"cart": current_cart, "meta": {"final_message": cart_message}}
