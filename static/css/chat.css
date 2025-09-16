@@ -662,25 +662,3 @@ body {
         min-height: 400px;
     }
 }
-
-/* === 마이페이지와 동일한 폰트 스택을 전역 적용 === */
-:root {
-  --qook-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans KR", sans-serif;
-}
-
-/* Tailwind의 .font-sans 까지 함께 덮어쓰기 */
-html, body, .font-sans {
-  font-family: var(--qook-font) !important;
-}
-
-/* 기존 배경색 유지 + 렌더링 보정 */
-body {
-  background-color: #f9fafb;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-/* 폼/버튼에서 시스템 기본 폰트로 되돌아가는 현상 방지 */
-button, input, select, textarea {
-  font-family: inherit;
-}
