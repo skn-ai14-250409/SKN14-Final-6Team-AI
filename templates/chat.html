@@ -6,6 +6,7 @@
     <title>Qook 챗봇 - Qook</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="/static/css/typography.css" rel="stylesheet">
     <link href="/static/css/chat.css" rel="stylesheet">
     <link href="/static/css/navigation.css" rel="stylesheet">
     <!-- hjs 수정: 마이페이지 탭 통합을 위해 mypage.css 추가 -->
@@ -16,14 +17,13 @@
 <body class="bg-gray-50 font-sans">
     <!-- 헤더 -->
     <header class="bg-white shadow-sm">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div class="flex justify-between items-center py-6">
+    <div class="max-w-7xl mx-auto px-4 sm:px-2 lg:px-8">
+        <div class="flex justify-between items-center py-4">
         
         <!-- 왼쪽: 로고 -->
         <div class="flex items-center">
             <a href="/" class="flex items-center">
-            <img src="{{ url_for('static', path='/images/qook_logo.png') }}" alt="Qook 로고" class="h-10 w-auto" loading="lazy">
-            <span class="text-3xl font-bold text-green-600 leading-none">Qook</span>
+            <img src="{{ url_for('static', path='/images/qook_logo.png') }}" alt="Qook 로고" class="h-16 w-auto" loading="lazy">
             </a>
         </div>
         
