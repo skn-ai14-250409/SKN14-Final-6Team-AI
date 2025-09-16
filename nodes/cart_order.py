@@ -87,7 +87,7 @@ def view_cart(state: ChatState) -> Dict[str, Any]:
 
         # cart 요약 메시지는 '장바구니 보기/결제 확인' 의도일 때만 사용
         target = (state.route or {}).get("target") if hasattr(state, "route") else None
-        if target in ("cart_view", "checkout"):
+        if target == "cart_view":
             return {"cart": current_cart, "meta": {"final_message": cart_message}}
         else:
             return {"cart": current_cart}
