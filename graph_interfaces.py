@@ -8,6 +8,8 @@ class ChatState:
     query: Optional[str] = None
     turn_id: int = 0
     attachments: List[str] = field(default_factory=list)
+    image: Optional[str] = None  # base64 인코딩된 이미지 데이터
+    vision_mode: bool = False    # 비전 모드 여부
     
     route: Dict[str, Any] = field(default_factory=dict)
     rewrite: Dict[str, Any] = field(default_factory=dict)
@@ -20,7 +22,7 @@ class ChatState:
     cs: Dict[str, Any] = field(default_factory=dict)
     handoff: Dict[str, Any] = field(default_factory=dict)
     end: Dict[str, Any] = field(default_factory=dict)
-    
+
     meta: Dict[str, Any] = field(default_factory=dict)
     
     def update(self, data: Dict[str, Any]):

@@ -6,6 +6,7 @@ from nodes.router_clarify import router_route, clarify
 from nodes.query_enhancement import enhance_query
 from nodes.product_search import product_search_rag_text2sql
 from nodes.recipe_search import recipe_search
+from nodes.vision_recipe import vision_recipe
 from nodes.cart_order import cart_manage, view_cart, remove_from_cart, checkout
 from nodes.cs_impl import cs_intake, _classify_cs_type
 from nodes.cs_rag_faq import faq_policy_rag
@@ -42,17 +43,18 @@ def determine_search_target(state: ChatState) -> str:
     """search_hub에서 다음 노드를 결정하는 조건부 함수 (if문 없이 딕셔너리 매핑)"""
     target = state.route.get("target")
     logger.info(f"Search target decision: '{target}'")
-    
+
     # 딕셔너리 매핑으로 분기 처리 (if문 없음)
     target_mapping = {
         'cart_add': 'enhance_query',    # cart_add는 먼저 enhance_query 실행
         'cart_remove': 'enhance_query', # cart_remove도 먼저 enhance_query 실행
         'product_search': 'enhance_query',
-        'recipe_search': 'enhance_query', 
+        'recipe_search': 'enhance_query',
+        'vision_recipe': 'vision_recipe',  # vision_recipe는 바로 vision_recipe로
         'cart_view': 'enhance_query',
         'checkout': 'enhance_query',
     }
-    
+
     next_node = target_mapping.get(target, 'enhance_query')  # 기본값은 enhance_query
     logger.info(f"determine_search_target: route='{target}' -> next='{next_node}'")
     return next_node
@@ -130,15 +132,27 @@ def determine_after_faq_policy_rag(state: ChatState) -> str:
     logger.info(f"determine_after_faq_policy_rag: should_handoff={should_handoff} -> next='{next_node}'")
     return next_node
 
+def determine_after_vision_recipe(state: ChatState) -> str:
+    """vision_recipe 후 다음 노드를 결정하는 조건부 함수"""
+    target = state.route.get("target")
+    logger.info(f"After vision_recipe decision: target='{target}'")
+
+    # vision_recipe에서 recipe_search로 라우팅된 경우 recipe_search로 이동
+    if target == 'recipe_search':
+        return 'recipe_search'
+    else:
+        # 기본적으로 recipe_search로 이동
+        return 'recipe_search'
+
 # ===== 라우팅 결정 함수들 (StateGraph용) =====
 def determine_route(state: ChatState) -> str:
     """라우터의 결과에 따라 다음 노드를 결정하는 함수"""
     target = state.route.get("target")
     logger.info(f"Routing decision: target = '{target}'")
-    
+
     if target == 'clarify':
         return 'clarify'
-    elif target in ['product_search', 'recipe_search', 'cart_add', 'cart_remove', 'cart_view', 'checkout']:
+    elif target in ['product_search', 'recipe_search', 'vision_recipe', 'cart_add', 'cart_remove', 'cart_view', 'checkout']:
         return 'search_hub'
     elif target in ['handoff', 'cs_intake', 'faq_policy_rag']:
         return 'cs_hub'
@@ -164,6 +178,7 @@ def create_workflow_graph():
     workflow.add_node("enhance_query", enhance_query)
     workflow.add_node("product_search", product_search_rag_text2sql)
     workflow.add_node("recipe_search", recipe_search)
+    workflow.add_node("vision_recipe", vision_recipe)
     workflow.add_node("cart_manage", cart_manage)
     workflow.add_node("view_cart", view_cart)
     workflow.add_node("remove_from_cart", remove_from_cart)
@@ -192,7 +207,8 @@ def create_workflow_graph():
         "search_hub",
         determine_search_target,
         {
-            "enhance_query": "enhance_query"
+            "enhance_query": "enhance_query",
+            "vision_recipe": "vision_recipe"
         }
     )
     
@@ -249,14 +265,23 @@ def create_workflow_graph():
             "END": END
         }
     )
-    
+
+    # vision_recipe 후 분기 (recipe_search로 이동)
+    workflow.add_conditional_edges(
+        "vision_recipe",
+        determine_after_vision_recipe,
+        {
+            "recipe_search": "recipe_search"
+        }
+    )
+
     # 종료 노드들
     workflow.add_edge("clarify", END)
     workflow.add_edge("recipe_search", END)
     workflow.add_edge("cart_manage", END)
     workflow.add_edge("remove_from_cart", END)
-    workflow.add_edge("checkout", END) 
-    workflow.add_edge("cs_intake", END) 
+    workflow.add_edge("checkout", END)
+    workflow.add_edge("cs_intake", END)
     workflow.add_edge("handoff", END)
     
     # 컴파일하여 실행 가능한 그래프 생성

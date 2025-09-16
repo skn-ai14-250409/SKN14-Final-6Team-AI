@@ -134,6 +134,9 @@
                                 <button class="quick-action px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-xs hover:bg-purple-200 transition" data-message="유기농 야채 추천해줘">
                                     🥬 유기농
                                 </button>
+                                <button id="vision-quick-btn" class="px-3 py-1 bg-orange-100 text-orange-700 rounded-full text-xs hover:bg-orange-200 transition" title="음식 사진으로 레시피 찾기" onclick="triggerImageUpload(); return false;">
+                                    📷 사진 레시피
+                                </button>
                             </div>
                         </div>
 
@@ -439,6 +442,7 @@
     <!-- hjs 수정: CS 증빙 전용 모듈 로드 -->
     <script src="/static/js/cs_evidence.js"></script>
     <script src="/static/js/markdown.js"></script>
+    <script src="/static/js/chat-mod-vision.js"></script>
     <!-- hjs 수정: 전역 사용자 ID 주입(메타에서 안전하게 읽기) -->
     <script>
         (function(){
