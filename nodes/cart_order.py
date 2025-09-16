@@ -51,7 +51,48 @@ def view_cart(state: ChatState) -> Dict[str, Any]:
         benefits = _get_membership_benefits(user_id)
         current_cart = {"items": cart_items, "membership": benefits.get("meta")}
         _calculate_totals(current_cart, benefits)
-        return {"cart": current_cart}
+
+        # 수정: 채팅용 요약 메시지 생성 (클라이언트 텍스트 렌더만 있는 경우 대비)
+
+        # float > int > str 변환 함수(varchar(db))
+        def _fmt_price(v: float) -> str:
+            try:
+                return f"{int(round(float(v))):,}"
+            except Exception:
+                try:
+                    return f"{int(v):,}"
+                except Exception:
+                    return str(v)
+
+        items = current_cart.get("items") or []
+        if not items:
+            cart_message = "현재 장바구니가 비어있습니다."
+        else:
+            lines = ["🛒 현재 장바구니 내용:\n"]
+            for i, it in enumerate(items, 1):
+                name = it.get("name") or it.get("sku") or "상품"
+                qty = int(it.get("qty") or it.get("quantity") or 0)
+                unit = float(it.get("unit_price") or 0)
+                lines.append(f"{i}. {name}")
+                lines.append(f"   수량: {qty}")
+                lines.append(f"   가격: {_fmt_price(unit)}원")
+                lines.append(f"   소계: {_fmt_price(unit*qty)}원\n")
+
+            discount_amount = sum(int(d.get('amount', 0)) for d in (current_cart.get('discounts') or []))
+            lines.append(f"💰 총 상품금액: {_fmt_price(current_cart.get('subtotal') or 0)}원")
+            if discount_amount > 0:
+                lines.append(f"💸 할인금액: -{_fmt_price(discount_amount)}원")
+            lines.append(f"💳 최종 결제금액: {_fmt_price(current_cart.get('total') or 0)}원")
+            cart_message = "\n".join(lines)
+
+        # cart 요약 메시지는 '장바구니 보기/결제 확인' 의도일 때만 사용
+        target = (state.route or {}).get("target") if hasattr(state, "route") else None
+        if target in ("cart_view", "checkout"):
+            return {"cart": current_cart, "meta": {"final_message": cart_message}}
+        else:
+            return {"cart": current_cart}
+    
+        
     except Error as e:
         logger.error(f"장바구니 조회 실패: {e}")
         return {"meta": {"cart_error": str(e)}}

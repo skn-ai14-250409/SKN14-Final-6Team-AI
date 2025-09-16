@@ -350,7 +350,7 @@ def _search_with_tavily(query: str, user_preferences: Dict[str, Any] = None) -> 
         logger.info(f"Tavily 검색 실행: '{query}'")
         
         # 개인맞춤화: 검색 쿼리에 제외 키워드 추가
-        exclusion_terms = ["-youtube", "-instagram", "-facebook", "-tiktok", "-blog.naver.com"]
+        exclusion_terms = ["-youtube", "-instagram", "-facebook", "-tiktok", "-blog.naver.com", "-m.blog.naver.com"]
         
         # 사용자 선호도 기반 제외 키워드 추가
         if user_preferences:
