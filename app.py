@@ -225,6 +225,99 @@ LAST_USER_CS    = {}   # {user_id: last_cs_payload}  # <-- cs 페이로드도 �
 REFUND_KEYWORDS = ("환불", "교환", "반품")  # 중복 억제 우회 키워드
 
 
+# 비전 레시피 전용 API 추가
+@app.post("/api/chat/vision")
+async def chat_vision_api(
+    message: str = Form(...),
+    user_id: str = Form(...),
+    session_id: str = Form(""),
+    image: UploadFile = File(...)
+):
+    """비전 AI 기반 레시피 검색 API"""
+    try:
+        # 이미지를 base64로 변환
+        image_content = await image.read()
+        import base64
+        image_base64 = base64.b64encode(image_content).decode('utf-8')
+        image_data = f"data:{image.content_type};base64,{image_base64}"
+
+        state = ChatState(
+            user_id=user_id,
+            session_id=session_id or str(uuid.uuid4()),
+            query=message,
+            image=image_data,
+            vision_mode=True
+        )
+
+        logger.info(f"Vision Chat API Request: User '{state.user_id}', Query: '{state.query}', Image: {image.filename}")
+
+        # 비침투 로깅 훅
+        try:
+            if state.session_id:
+                db_audit.ensure_chat_session(state.user_id, state.session_id, status='active')
+                db_audit.timeout_inactive_sessions(10)
+                db_audit.complete_other_sessions(state.user_id, state.session_id)
+                db_audit.ensure_userlog_for_session(state.user_id, state.session_id)
+                if state.query:
+                    db_audit.insert_history(state.session_id, 'user', f"{state.query} [이미지 포함]")
+        except Exception:
+            pass
+
+        # 워크플로우 실행
+        final_state = run_workflow(state)
+
+        if isinstance(final_state, dict):
+            converted_state = ChatState(user_id=final_state.get('user_id', 'anonymous'))
+            for key, value in final_state.items():
+                if hasattr(converted_state, key):
+                    setattr(converted_state, key, value)
+            final_state = converted_state
+
+        # 장바구니 상태 업데이트
+        latest_cart_state = cart_order.view_cart(final_state)
+        final_state.update(latest_cart_state)
+
+        # 응답 메시지 구성
+        response_text = final_state.meta.get("final_message") or \
+                       getattr(final_state, 'response', None) or \
+                       "이미지 분석이 완료되었습니다."
+
+        if not response_text and final_state.recipe.get("results"):
+            response_text = f"{len(final_state.recipe['results'])}개의 레시피를 찾았습니다."
+
+        # 빠른 분석 모드인 경우 간단한 음식 이름만 반환
+        if getattr(state, 'quick_analysis', False):
+            # vision_recipe에서 음식 이름 추출
+            food_analysis = getattr(final_state, 'food_analysis', {})
+            food_name = food_analysis.get('food_name')
+            if food_name:
+                response_text = food_name
+
+        response_payload = {
+            'session_id': final_state.session_id or state.session_id,
+            'user_id': final_state.user_id,
+            'response': response_text,
+            'cart': final_state.cart,
+            'search': final_state.search,
+            'recipe': final_state.recipe,
+            'order': final_state.order,
+            'cs': getattr(final_state, 'cs', {}),
+            'metadata': {'session_id': final_state.session_id or state.session_id}
+        }
+
+        # 비침투 로깅 훅
+        try:
+            if state.session_id and response_text:
+                db_audit.insert_history(state.session_id, 'bot', response_text)
+        except Exception:
+            pass
+
+        return JSONResponse(content=jsonable_encoder(response_payload))
+
+    except Exception as e:
+        logger.error(f"Vision Chat API Error: {e}", exc_info=True)
+        return JSONResponse(status_code=500, content={"detail": "비전 채팅 처리 중 서버 오류 발생"})
+
 # 메인 챗봇 API
 @app.post("/api/chat")
 async def chat_api(request: Request):
@@ -236,6 +329,14 @@ async def chat_api(request: Request):
             session_id=data.get('session_id'),
             query=data.get('message', '')
         )
+
+        # 이미지 데이터가 포함된 경우 처리
+        if data.get('image'):
+            state.image = data.get('image')
+        if data.get('type') == 'vision_recipe':
+            state.vision_mode = True
+        if data.get('quick_analysis'):
+            state.quick_analysis = True
         logger.info(f"Chat API Request: User '{state.user_id}', Query: '{state.query}'")
         # 비침투 로깅 훅: 세션/유저로그 생성 후 유저 메시지 저장 (순서 보장)
         try:
