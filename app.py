@@ -249,8 +249,6 @@ async def chat_vision_api(
             vision_mode=True
         )
 
-        logger.info(f"Vision Chat API Request: User '{state.user_id}', Query: '{state.query}', Image: {image.filename}")
-
         # 비침투 로깅 훅
         try:
             if state.session_id:
@@ -278,12 +276,7 @@ async def chat_vision_api(
         final_state.update(latest_cart_state)
 
         # 응답 메시지 구성
-        response_text = final_state.meta.get("final_message") or \
-                       getattr(final_state, 'response', None) or \
-                       "이미지 분석이 완료되었습니다."
-
-        if not response_text and final_state.recipe.get("results"):
-            response_text = f"{len(final_state.recipe['results'])}개의 레시피를 찾았습니다."
+        response_text = f"{len(final_state.recipe['results'])}개의 레시피를 찾았습니다."
 
         # 빠른 분석 모드인 경우 간단한 음식 이름만 반환
         if getattr(state, 'quick_analysis', False):
@@ -304,7 +297,6 @@ async def chat_vision_api(
             'cs': getattr(final_state, 'cs', {}),
             'metadata': {'session_id': final_state.session_id or state.session_id}
         }
-
         # 비침투 로깅 훅
         try:
             if state.session_id and response_text:
