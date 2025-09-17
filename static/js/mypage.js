@@ -356,67 +356,106 @@ async function loadChatHistory(){
     const wrap = document.getElementById('chatHistory');
     if (!wrap) return;
     if (messages.length===0){ wrap.innerHTML = '<div class="text-gray-500">최근 대화가 없습니다.</div>'; return; }
-    // hjs 수정: 날짜/세션별 요약 타일 + 상세보기 토글
     const sessions = {};
     messages.forEach(m=>{ const sid = m.log_id || 'unknown'; (sessions[sid]||=([])).push(m); });
-    const sids = Object.keys(sessions).sort((a,b)=>{
-      const at = new Date((sessions[a][0]?.time)||0).getTime();
-      const bt = new Date((sessions[b][0]?.time)||0).getTime();
-      return bt - at;
-    });
-    let html = '';
-    sids.forEach((sid, idx)=>{
-      const list = sessions[sid].slice().sort((x,y)=> new Date(x.time).getTime() - new Date(y.time).getTime());
-      const date = (list[0]?.time||'').slice(0,10);
-      const firstUserMsg = (list.find(x=>x.role==='user')?.text || '').slice(0,30);
-      const count = list.length;
-      html += `
-      <div class="bg-gray-50 rounded-lg p-4 border border-gray-200 mb-3">
-        <div class="flex items-center justify-between">
-          <div>
-            <div class="text-sm text-gray-500">${escapeHtml(date)} • 세션 ${idx+1}</div>
-            <div class="text-gray-800 mt-1">${escapeHtml(firstUserMsg || '대화를 시작해보세요')}</div>
+    const sessionEntries = Object.entries(sessions).map(([sid, items])=>{
+      const sorted = items.slice().sort((a,b)=> new Date(a.time).getTime() - new Date(b.time).getTime());
+      const firstTs = new Date(sorted[0]?.time || Date.now());
+      return { sid, messages: sorted, firstTs };
+    }).sort((a,b)=> b.firstTs.getTime() - a.firstTs.getTime());
+
+    const totalSessions = sessionEntries.length;
+    const cardsHtml = sessionEntries.map((session, idx)=>{  // hjs 수정: 세션 카드 UI 생성
+      const summary = formatSessionHeader(session.firstTs);  // hjs 수정: 세션 리스트 요약 레이블
+      const detail = session.messages.map(renderChatRow).join('');
+      const sessionLabel = `세션 ${totalSessions - idx}`;
+      return `
+        <div class="chat-session-card bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+          <div class="flex items-center justify-between px-4 py-3 bg-gray-50 border-b border-gray-200">
+            <div>
+              <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide">${escapeHtml(sessionLabel)}</p>
+              <p class="text-base font-semibold text-gray-800 mt-1">${escapeHtml(summary)}</p>
+            </div>
+            <button type="button" class="chat-detail-toggle px-3 py-1.5 text-sm font-semibold text-green-600 bg-white border border-green-200 rounded-lg shadow-sm hover:bg-green-50 transition" data-sid="${escapeHtml(session.sid)}">상세 보기</button>
           </div>
-          <div class="flex items-center gap-3">
-            <span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">${count} 메시지</span>
-            <button class="chat-detail-toggle px-3 py-1 text-sm border rounded hover:bg-gray-100">상세보기</button>
+          <div class="chat-session-detail hidden px-4 py-4 bg-gradient-to-br from-gray-50 to-white">
+            <div class="space-y-3">${detail}</div>
           </div>
-        </div>
-        <div class="chat-detail-body hidden mt-3 space-y-2">
-          ${list.map(m=>renderChatRow(m)).join('')}
-        </div>
-      </div>`;
-    });
-    wrap.innerHTML = html;
+        </div>`;
+    }).join('');
+
+    wrap.innerHTML = `<div class="chat-history-session-list space-y-4">${cardsHtml}</div>`;  // hjs 수정: 요약 리스트 렌더링
   }catch(e){ console.error('loadChatHistory error:', e); }
 }
 
 function renderChatRow(m){
   const isUser = m.role === 'user';
-  const text = escapeHtml(m.text||'');
-  const time = escapeHtml(m.time||'');
-  if (isUser){
-    return `
-    <div class="flex items-start">
-      <div class="bg-blue-100 p-2 rounded-full mr-3"><i class="fas fa-user text-blue-600"></i></div>
-      <div>
-        <p class="text-gray-800"><strong>나:</strong> ${text}</p>
-        <p class="text-gray-500 text-sm">${time}</p>
-      </div>
-    </div>`;
-  }
+  const rawText = m.text || '';
+  const text = isUser ? formatUserMessage(rawText) : renderBotMarkdown(rawText);  // hjs 수정: 사용자/봇 메시지 렌더링 분리
+  const timeLabel = formatChatTimestamp(m.time);
+  const align = isUser ? 'justify-end' : 'justify-start';
+  const bubbleClass = isUser ? 'bg-green-600 text-white' : 'bg-white text-gray-800';
+  const timeClass = isUser ? 'text-right text-white opacity-80 font-medium' : 'text-left text-gray-600 font-medium';  // hjs 수정: 시각 색상 대비 개선
+  const avatar = isUser
+    ? '<div class="w-8 h-8 rounded-full bg-green-500 text-white flex items-center justify-center ml-3"><i class="fas fa-user"></i></div>'
+    : '<div class="w-8 h-8 rounded-full bg-gray-200 text-green-600 flex items-center justify-center mr-3"><i class="fas fa-robot"></i></div>';
+
   return `
-    <div class="flex items-start flex-row-reverse">
-      <div class="bg-green-100 p-2 rounded-full ml-3"><i class="fas fa-robot text-green-600"></i></div>
-      <div class="bg-green-50 rounded-lg p-3 shadow-sm flex-1">
-        <p class="text-gray-800"><strong>Qook:</strong> ${text}</p>
-        <p class="text-gray-500 text-sm mt-1 text-right">${time}</p>
+    <div class="flex ${align} items-end">
+      ${isUser ? '' : avatar}
+      <div class="max-w-[70%]">
+        <div class="${bubbleClass} rounded-2xl px-4 py-2 shadow-sm leading-relaxed">
+          ${isUser ? '' : '<span class="block text-sm font-semibold text-green-900 mb-1">Qook</span>'}
+          ${text}
+        </div>
+        <div class="text-xs ${timeClass} mt-1">${escapeHtml(timeLabel)}</div>
       </div>
+      ${isUser ? avatar : ''}
     </div>`;
 }
 
 function formatKRW(n){ const v = Math.round(Number(n)||0); return v.toLocaleString('ko-KR'); }
 function escapeHtml(s){ const d=document.createElement('div'); d.textContent=s||''; return d.innerHTML; }
+function formatSessionHeader(date){
+  try {  // hjs 수정: 세션 요약 표시 포맷 개선
+    const dt = new Date(date);
+    const y = dt.getFullYear();
+    const m = String(dt.getMonth() + 1).padStart(2, '0');
+    const d = String(dt.getDate()).padStart(2, '0');
+    const minutes = String(dt.getMinutes()).padStart(2, '0');
+    let hour = dt.getHours();
+    const period = hour < 12 ? '오전' : '오후';
+    hour = hour % 12 || 12;
+    const hourLabel = String(hour).padStart(2, '0');
+    return `${y}. ${m}.${d} ${period} ${hourLabel}:${minutes}`;
+  } catch (_) {
+    return String(date || '최근 대화');
+  }
+}
+function formatChatTimestamp(value){
+  try {
+    return new Date(value).toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit' });
+  } catch (_) {
+    return String(value || '');
+  }
+}
+
+function formatUserMessage(text){  // hjs 수정: 사용자 메시지 포맷팅
+  return escapeHtml(String(text||'')).replace(/\n/g, '<br>');
+}
+
+function renderBotMarkdown(text){  // hjs 수정: 챗봇 답변 Markdown 렌더링
+  const fallback = escapeHtml(String(text||'')).replace(/\n/g, '<br>');
+  try {
+    if (window.QMarkdown && typeof window.QMarkdown.render === 'function'){
+      return QMarkdown.render(text);
+    }
+    return fallback;
+  } catch (err){
+    console.warn('markdown render 실패', err);
+    return fallback;
+  }
+}
 
 // 이벤트 위임: 주문 상세 & 채팅 상세 토글
 document.addEventListener('click', async (e)=>{
@@ -433,10 +472,17 @@ document.addEventListener('click', async (e)=>{
       panel.classList.toggle('hidden');
     }catch(err){ console.error('order details error:', err); }
   }
-  const tgl = e.target.closest('.chat-detail-toggle');
-  if (tgl){
-    const body = tgl.closest('.bg-gray-50')?.querySelector('.chat-detail-body');
-    if (body) body.classList.toggle('hidden');
+  const chatToggle = e.target.closest('.chat-detail-toggle');
+  if (chatToggle){  // hjs 수정: 채팅 히스토리 상세 토글
+    const card = chatToggle.closest('.chat-session-card');
+    const detail = card?.querySelector('.chat-session-detail');
+    if (!detail) return;
+    const willOpen = detail.classList.contains('hidden');
+    detail.classList.toggle('hidden');
+    chatToggle.textContent = willOpen ? '접기' : '상세 보기';
+    if (willOpen){
+      detail.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
   }
 });
 
@@ -602,6 +648,13 @@ function addSavedRecipeRemoveButtons(){
   });
 }
 
+function normalizeRecipeEntry(entry){  // hjs 수정: 즐겨찾기 항목 키 정규화
+  if (!entry) return { url: '', title: '' };
+  const url = (entry.url || entry.recipe_url || '').trim();
+  const title = (entry.title || entry.recipe_title || '').trim();
+  return { url, title };
+}
+
 // hjs 수정: 즐겨찾기 삭제 처리
 document.addEventListener('click', async (e)=>{
   const btn = e.target.closest('.saved-recipe-remove-btn');
@@ -619,9 +672,12 @@ document.addEventListener('click', async (e)=>{
     const favoritesKey = `favorite_recipes_${uid}`;
     try {
       const localFavorites = JSON.parse(localStorage.getItem(favoritesKey) || '[]');
-      const updatedFavorites = localFavorites.filter(item =>
-        item.url !== url && item.title !== title
-      );
+      const updatedFavorites = localFavorites.filter(item => {
+        const normalized = normalizeRecipeEntry(item);
+        const matchesUrl = normalized.url && url ? normalized.url === url : false;
+        const matchesTitle = normalized.title && title ? normalized.title === title : false;
+        return !(matchesUrl || matchesTitle);
+      });
       localStorage.setItem(favoritesKey, JSON.stringify(updatedFavorites));
     } catch(localErr) {
       console.error('로컬스토리지 업데이트 실패:', localErr);
@@ -629,6 +685,11 @@ document.addEventListener('click', async (e)=>{
 
     const card = btn.closest('.bg-white.rounded-lg');
     if (card) card.remove();
+
+    if (!gridHasRecipeCards()) {  // hjs 수정: 카드 제거 후 빈 상태 메시지 처리
+      const grid = document.querySelector('#content-recipes .grid');
+      if (grid) grid.innerHTML = '<div class="text-gray-500">저장한 레시피가 없습니다.</div>';
+    }
 
     // hjs 수정: 챗봇 즐겨찾기 목록 실시간 동기화
     try {
@@ -728,8 +789,14 @@ document.addEventListener('keydown', function(event) {
         if (notification) {
             notification.remove();
         }
-    }
+  }
 });
+
+function gridHasRecipeCards(){  // hjs 수정: 즐겨찾기 카드 잔여 여부 확인
+  const grid = document.querySelector('#content-recipes .grid');
+  if (!grid) return false;
+  return !!grid.querySelector('.bg-white.rounded-lg');
+}
 
 // 마우스 오버 효과를 위한 추가 이벤트
 document.addEventListener('DOMContentLoaded', function() {
