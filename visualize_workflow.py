@@ -8,7 +8,6 @@ import os
 import sys
 from datetime import datetime
 
-# 현재 디렉토리를 Python path에 추가
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 try:
@@ -19,17 +18,14 @@ try:
         """현재 워크플로우를 시각화하고 이미지로 저장"""
         try:
             print("워크플로우 그래프를 생성하는 중...")
-            
-            # 워크플로우 그래프 가져오기
+
             workflow_graph = get_workflow_graph()
             
             print("워크플로우를 시각화하는 중...")
-            
-            # 현재 시간으로 파일명 생성
+
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"workflow_diagram_{timestamp}.png"
-            
-            # 워크플로우 시각화
+
             visualize_graph(
                 workflow_graph
             )

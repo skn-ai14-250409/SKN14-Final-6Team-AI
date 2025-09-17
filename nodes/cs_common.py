@@ -8,34 +8,25 @@ from typing import Any
 from dotenv import load_dotenv
 from datetime import datetime
 
-import mysql.connector
 from mysql.connector import Error
+from utils.db import get_db_connection as _get_db_connection  
 
 load_dotenv()
 
 logger = logging.getLogger("E_CS_COMMON")
 
-DB_CONFIG = {
-    "host": os.getenv("DB_HOST", "127.0.0.1"),
-    "user": os.getenv("DB_USER", "qook_user"),
-    "password": os.getenv("DB_PASSWORD", "qook_pass"),
-    "database": os.getenv("DB_NAME", "qook_chatbot"),
-    "port": int(os.getenv("DB_PORT", "3306")),
-}
+
+def get_db_connection():
+    """공용 DB 연결 래퍼"""
+    conn = _get_db_connection()
+    if not conn:
+        logger.error('DB 연결 실패')
+    return conn
 
 CS_DEFECT_THRESHOLD = float(os.getenv("CS_DEFECT_THRESHOLD", "0.35"))
 CS_AUTO_ACCEPT_DEBUG = os.getenv("CS_AUTO_ACCEPT_DEBUG", "false").lower() == "true"
 CS_PRODUCT_MATCH_THRESHOLD = float(os.getenv("CS_PRODUCT_MATCH_THRESHOLD", "0.60"))
 
-def get_db_connection():
-    try:
-        return mysql.connector.connect(**DB_CONFIG)
-    except Error as e:
-        logger.error(f"DB 연결 실패: {e}")
-        return None
-
-
-# OpenAI client (optional)
 try:
     import openai
 
@@ -47,7 +38,6 @@ except Exception:
     openai_client = None
     logger.warning("OpenAI package not available.")
 
-# Pinecone client (optional)
 try:
     from pinecone import Pinecone
 

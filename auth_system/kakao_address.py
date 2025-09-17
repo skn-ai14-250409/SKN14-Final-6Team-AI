@@ -11,7 +11,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Kakao 주소 API 라우터
 kakao_router = APIRouter(prefix="/kakao", tags=["kakao-address"])
 
 class AddressSearchRequest(BaseModel):
@@ -25,7 +24,6 @@ class AddressSearchResponse(BaseModel):
     total_count: int
     message: Optional[str] = None
 
-# Kakao REST API 키 (환경변수에서 설정 권장)
 KAKAO_REST_API_KEY = "YOUR_KAKAO_REST_API_KEY"
 
 class KakaoAddressService:
@@ -39,7 +37,7 @@ class KakaoAddressService:
         """주소 검색 API 호출"""
         
         if not self.api_key or self.api_key == "YOUR_KAKAO_REST_API_KEY":
-            # API 키가 없는 경우 모의 데이터 반환
+
             return await self._mock_address_search(query)
         
         headers = {
@@ -108,15 +106,14 @@ class KakaoAddressService:
                 }
             }
         ]
-        
-        # 검색어가 포함된 주소만 필터링
+
         filtered_addresses = [
             addr for addr in mock_addresses 
             if query.lower() in addr["address_name"].lower()
         ]
         
         if not filtered_addresses:
-            # 검색 결과가 없으면 기본 주소 반환
+
             filtered_addresses = mock_addresses[:1]
         
         return {
@@ -161,7 +158,6 @@ class KakaoAddressService:
             logger.error(f"주소 응답 포맷팅 중 오류: {e}")
             return {"success": False, "error": "주소 데이터 처리 중 오류가 발생했습니다"}
 
-# 전역 서비스 인스턴스
 kakao_address_service = KakaoAddressService()
 
 @kakao_router.post("/address/search", response_model=AddressSearchResponse)
@@ -198,7 +194,7 @@ async def validate_postal_code(zone_no: str):
     """우편번호 유효성 검증"""
     
     try:
-        # 우편번호 형식 검증 (5자리 숫자)
+
         if not zone_no.isdigit() or len(zone_no) != 5:
             return {
                 "success": False,
@@ -206,7 +202,7 @@ async def validate_postal_code(zone_no: str):
                 "message": "올바른 우편번호 형식이 아닙니다 (5자리 숫자)"
             }
         
-        # 실제 우편번호 데이터베이스와 검증 (여기서는 기본 검증만)
+
         valid_prefixes = ["01", "02", "03", "04", "05", "06", "07", "08", "09"]
         is_valid = any(zone_no.startswith(prefix) for prefix in valid_prefixes)
         
