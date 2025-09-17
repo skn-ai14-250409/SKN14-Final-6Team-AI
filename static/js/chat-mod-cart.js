@@ -61,12 +61,25 @@
     optimisticRecalculateAndRedrawCart(bot){
       // hjs 수정: 프론트에서도 즉시 금액 갱신(낙관적) 후 서버 응답으로 정합성 보정
       if (!bot.cartState) return;
+      const resolveMembershipPolicy = (mem = {}) => {  // hjs 수정: 멤버십 등급별 할인/무료배송 정책 보정
+        const tier = String(mem.membership_name || (mem.meta && mem.meta.membership_name) || '').toLowerCase();
+        const policy = {
+          premium: { rate: 0.10, threshold: 0 },
+          gold: { rate: 0.05, threshold: 15000 },
+          basic: { rate: 0.00, threshold: 30000 }
+        };
+        const base = policy[tier] || policy.basic;
+        const rate = (mem.discount_rate != null ? Number(mem.discount_rate) : (mem.meta && mem.meta.discount_rate != null ? Number(mem.meta.discount_rate) : base.rate));
+        const threshold = (mem.free_shipping_threshold != null ? Number(mem.free_shipping_threshold) : (mem.meta && mem.meta.free_shipping_threshold != null ? Number(mem.meta.free_shipping_threshold) : base.threshold));
+        return { rate, threshold };
+      };
+
       try {
         const items = Array.isArray(bot.cartState.items) ? bot.cartState.items : [];
         const subtotal = items.reduce((acc, it) => acc + (parseFloat(it.unit_price||0) * parseInt(it.qty||0, 10)), 0);
-        const m = (bot.cartState.membership || {});
-        const rate = Number((m.discount_rate != null ? m.discount_rate : (m.meta && m.meta.discount_rate)) || 0);
-        const freeThr = Number((m.free_shipping_threshold != null ? m.free_shipping_threshold : (m.meta && m.meta.free_shipping_threshold)) || 30000);
+        const policy = resolveMembershipPolicy(bot.cartState.membership || {});
+        const rate = Number(policy.rate || 0);
+        const freeThr = Number(policy.threshold || 0);
 
         // hjs 수정: 백엔드(_calculate_totals)와 동일한 규칙으로 계산
         const membershipDiscount = Math.floor(subtotal * rate);
@@ -122,58 +135,184 @@
       }
     },
     updateCart(bot, cart, saveState=true){
-      // hjs 수정: 렌더링은 ChatBot.updateCart를 단일 소스로 사용
-      return bot.updateCart(cart, saveState);
+      // hjs 수정: 장바구니 렌더링 책임을 모듈로 이동하여 ChatBot을 경량화했습니다. # 멀티턴 기능
+      const escapeHtml = (text) => {
+        if (bot && typeof bot.escapeHtml === 'function') return bot.escapeHtml(text);
+        if (window.UIHelpers && UIHelpers.escapeHtml) return UIHelpers.escapeHtml(text);
+        return String(text || '');
+      };
+      const formatPrice = (price) => {
+        if (bot && typeof bot.formatPrice === 'function') return bot.formatPrice(price);
+        if (window.UIHelpers && UIHelpers.formatPrice) return UIHelpers.formatPrice(price);
+        return String(price || 0);
+      };
+
+      const list = document.getElementById('cartItems');
+      const previousSelection = new Set();
+      if (list) {
+        list.querySelectorAll('.cart-select:checked').forEach((node) => {
+          if (node.dataset && node.dataset.productName) previousSelection.add(node.dataset.productName);
+        });
+      }
+
       if (saveState && cart) {
-        if (cart.items) { cart.items.forEach(item=>{ item.qty=parseInt(item.qty,10); item.unit_price=parseFloat(item.unit_price); }); }
-        bot.cartState=JSON.parse(JSON.stringify(cart));
-      }
-      const currentCart=bot.cartState;
-      const section=document.getElementById('cartSection');
-      const list=document.getElementById('cartItems');
-      const countBadge=document.getElementById('cartCount');
-      const subtotalEl=document.getElementById('subtotalAmount');
-      const discountEl=document.getElementById('discountAmount');
-      const totalEl=document.getElementById('totalAmount');
-      const shippingFeeEl=document.getElementById('shippingFee');
-      const checkoutButton=document.getElementById('checkoutButton');
-
-      if (!currentCart||!currentCart.items||currentCart.items.length===0){
-        section.classList.remove('hidden'); list.innerHTML=`<div class="cart-empty p-4 text-center text-gray-500">장바구니가 비어있습니다.</div>`;
-        countBadge.textContent='0'; subtotalEl.textContent='0원'; discountEl.textContent='- 0원'; totalEl.textContent='0원'; checkoutButton.classList.add('hidden'); return;
+        if (Array.isArray(cart.items)) {
+          cart.items.forEach((item)=>{
+            item.qty = parseInt(item.qty, 10);
+            item.unit_price = parseFloat(item.unit_price);
+          });
+        }
+        bot.cartState = JSON.parse(JSON.stringify(cart));
+      } else if (saveState && !cart) {
+        bot.cartState = null;
       }
 
-      section.classList.remove('hidden'); countBadge.textContent=currentCart.items.length; list.innerHTML='';
-      currentCart.items.forEach(item=>{
-        const itemDiv=document.createElement('div');
-        itemDiv.className='cart-item flex items-center justify-between bg-white rounded p-2 text-sm';
-        itemDiv.innerHTML=`
+      const currentCart = bot.cartState;
+      const section = document.getElementById('cartSection');
+      const countBadge = document.getElementById('cartCount');
+      const subtotalEl = document.getElementById('subtotalAmount');
+      const discountEl = document.getElementById('discountAmount');
+      const totalEl = document.getElementById('totalAmount');
+      const shippingFeeEl = document.getElementById('shippingFee');
+      const checkoutButton = document.getElementById('checkoutButton');
+
+      if (!section || !list || !countBadge || !subtotalEl || !discountEl || !totalEl || !checkoutButton) return;
+
+      if (!currentCart || !Array.isArray(currentCart.items) || currentCart.items.length === 0) {
+        section.classList.remove('hidden');
+        list.innerHTML = '<div class="cart-empty p-4 text-center text-gray-500">장바구니가 비어있습니다.</div>';
+        countBadge.textContent = '0';
+        subtotalEl.textContent = '0원';
+        discountEl.textContent = '- 0원';
+        totalEl.textContent = '0원';
+        if (shippingFeeEl) shippingFeeEl.textContent = '0원';
+        checkoutButton.classList.add('hidden');
+        ChatCart.recalculateCartTotals(bot, []);
+        return;
+      }
+
+      section.classList.remove('hidden');
+      countBadge.textContent = currentCart.items.length;
+      list.innerHTML = '';
+
+      currentCart.items.forEach((item) => {
+        const itemDiv = document.createElement('div');
+        itemDiv.className = 'cart-item flex items-center justify-between bg-white rounded p-2 text-sm';
+        itemDiv.innerHTML = `
           <div class="flex items-center flex-1 mr-2">
-            <input type="checkbox" class="cart-select mr-2" data-product-name="${UIHelpers.escapeHtml(item.name)}" />
+            <input type="checkbox" class="cart-select mr-2" data-product-name="${escapeHtml(item.name)}" />
             <div>
-              <span class="font-medium">${UIHelpers.escapeHtml(item.name)}</span>
-              <div class="text-xs text-gray-500">${UIHelpers.formatPrice(item.unit_price)}원</div>
+              <span class="font-medium">${escapeHtml(item.name)}</span>
+              <div class="text-xs text-gray-500">${formatPrice(item.unit_price)}원</div>
             </div>
           </div>
           <div class="quantity-controls flex items-center">
-            <button class="quantity-btn minus-btn" data-product-name="${UIHelpers.escapeHtml(item.name)}">-</button>
+            <button class="quantity-btn minus-btn" data-product-name="${escapeHtml(item.name)}">-</button>
             <span class="quantity-display">${item.qty}</span>
-            <button class="quantity-btn plus-btn" data-product-name="${UIHelpers.escapeHtml(item.name)}">+</button>
+            <button class="quantity-btn plus-btn" data-product-name="${escapeHtml(item.name)}">+</button>
           </div>
-          <button class="remove-item ml-2" data-product-name="${UIHelpers.escapeHtml(item.name)}">
+          <button class="remove-item ml-2" data-product-name="${escapeHtml(item.name)}">
             <i class="fas fa-times"></i>
           </button>`;
         list.appendChild(itemDiv);
+
+        // hjs 수정: 선택 유지 및 변경 시 금액을 재계산합니다. # 멀티턴 기능
+        const checkbox = itemDiv.querySelector('.cart-select');
+        if (previousSelection.has(item.name)) {
+          checkbox.checked = true;
+        }
+        checkbox.addEventListener('change', () => {
+          ChatCart.recalculateCartTotals(bot);
+        });
       });
 
-      subtotalEl.textContent=UIHelpers.formatPrice(currentCart.subtotal)+'원';
-      const discountAmount=(currentCart.discounts||[]).reduce((acc,d)=>acc+d.amount,0);
-      discountEl.textContent=`- ${UIHelpers.formatPrice(discountAmount)}원`;
-      const freeShipDiscount = (currentCart.discounts||[]).filter(d=>d.type==='free_shipping').reduce((a,b)=>a+(b.amount||0),0);
-      const displayShipping = Math.max(0, (currentCart.shipping_fee||0) - freeShipDiscount);
-      if (shippingFeeEl) shippingFeeEl.textContent=UIHelpers.formatPrice(displayShipping)+'원';
-      totalEl.textContent=UIHelpers.formatPrice(currentCart.total)+'원';
       checkoutButton.classList.remove('hidden');
+      ChatCart.recalculateCartTotals(bot, previousSelection);
+    },
+    // hjs 수정: 선택된 상품만을 기준으로 금액을 계산합니다. # 멀티턴 기능
+    recalculateCartTotals(bot, preservedSelection){
+      const formatPrice = (price) => {
+        if (bot && typeof bot.formatPrice === 'function') return bot.formatPrice(price);
+        if (window.UIHelpers && UIHelpers.formatPrice) return UIHelpers.formatPrice(price);
+        return String(price || 0);
+      };
+
+      const subtotalEl = document.getElementById('subtotalAmount');
+      const discountEl = document.getElementById('discountAmount');
+      const totalEl = document.getElementById('totalAmount');
+      const shippingFeeEl = document.getElementById('shippingFee');
+      const list = document.getElementById('cartItems');
+
+      if (!subtotalEl || !discountEl || !totalEl || !list) return;
+
+      const selectedNames = new Set();
+      list.querySelectorAll('.cart-select').forEach((node) => {
+        if (node.checked && node.dataset && node.dataset.productName) {
+          selectedNames.add(node.dataset.productName);
+        }
+      });
+
+      if (!selectedNames.size && preservedSelection && preservedSelection.size) {
+        preservedSelection.forEach((name) => selectedNames.add(name));
+        list.querySelectorAll('.cart-select').forEach((node) => {
+          if (selectedNames.has(node.dataset.productName)) node.checked = true;
+        });
+      }
+
+      const cartState = bot && bot.cartState ? bot.cartState : { items: [] };
+      const items = Array.isArray(cartState.items) ? cartState.items : [];
+      const targetedItems = selectedNames.size ? items.filter((item) => selectedNames.has(item.name)) : [];
+
+      const subtotal = targetedItems.reduce((acc, item) => {
+        const price = parseFloat(item.unit_price || 0);
+        const qty = parseInt(item.qty || 0, 10) || 0;
+        return acc + (price * qty);
+      }, 0);
+
+      const membership = cartState.membership || {};
+      const resolveMembershipPolicy = (mem = {}) => {  // hjs 수정: 멤버십 정책 보정 (무료배송 0 허용)
+        const tier = String(mem.membership_name || (mem.meta && mem.meta.membership_name) || '').toLowerCase();
+        const policy = {
+          premium: { rate: 0.10, threshold: 0 },
+          gold: { rate: 0.05, threshold: 15000 },
+          basic: { rate: 0.00, threshold: 30000 }
+        };
+        const base = policy[tier] || policy.basic;
+        const rate = (mem.discount_rate != null ? Number(mem.discount_rate) : (mem.meta && mem.meta.discount_rate != null ? Number(mem.meta.discount_rate) : base.rate));
+        const threshold = (mem.free_shipping_threshold != null ? Number(mem.free_shipping_threshold) : (mem.meta && mem.meta.free_shipping_threshold != null ? Number(mem.meta.free_shipping_threshold) : base.threshold));
+        return { rate, threshold };
+      };
+      const membershipPolicy = resolveMembershipPolicy(membership);
+      const rate = Number(membershipPolicy.rate || 0);
+      const freeThreshold = Number(membershipPolicy.threshold || 0);
+      const baseShippingCost = typeof cartState.shipping_fee === 'number' ? cartState.shipping_fee : 3000;
+
+      const membershipDiscount = targetedItems.length ? Math.floor(subtotal * rate) : 0;
+      const extraDiscounts = targetedItems.length && Array.isArray(cartState.discounts)
+        ? cartState.discounts
+            .filter((d) => d && d.type && d.type !== 'membership_discount' && d.type !== 'free_shipping')
+            .reduce((acc, d) => acc + (d.amount || 0), 0)
+        : 0;
+      const productDiscount = targetedItems.length ? membershipDiscount + extraDiscounts : 0;
+
+      const effectiveSubtotal = subtotal - membershipDiscount;
+      const shippingBase = targetedItems.length ? baseShippingCost : 0;
+      let shippingDiscount = 0;
+      if (targetedItems.length && effectiveSubtotal >= freeThreshold) {
+        shippingDiscount = shippingBase;
+      }
+
+      const total = targetedItems.length
+        ? Math.max(0, subtotal + shippingBase - productDiscount - shippingDiscount)
+        : 0;
+
+      subtotalEl.textContent = formatPrice(subtotal) + '원';
+      discountEl.textContent = `- ${formatPrice(productDiscount)}원`;
+      if (shippingFeeEl) {
+        const displayShipping = targetedItems.length ? Math.max(0, shippingBase - shippingDiscount) : 0;
+        shippingFeeEl.textContent = formatPrice(displayShipping) + '원';
+      }
+      totalEl.textContent = formatPrice(total) + '원';
     },
     async handleCheckout(bot){
       if (!bot.cartState||!bot.cartState.items||bot.cartState.items.length===0){ alert('장바구니가 비어있습니다.'); return; }
@@ -205,6 +344,7 @@
     },
     getSelectedCartProducts(bot){
       const nodes = Array.from(document.querySelectorAll('.cart-select:checked'));
+      // hjs 수정: 선택된 상품명을 반환하여 선택 기반 계산을 지원합니다. # 멀티턴 기능
       return nodes.map(n => n.dataset.productName).filter(Boolean);
     },
     async handleRemoveSelected(bot){

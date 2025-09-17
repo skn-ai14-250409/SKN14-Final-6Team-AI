@@ -7,6 +7,8 @@ from mysql.connector import Error
 from mysql.connector.pooling import MySQLConnectionPool
 import sys
 from graph_interfaces import ChatState
+from utils.chat_history import summarize_product_search_with_history  # hjs 수정 # 멀티턴 기능
+from utils.db import get_db_connection as get_raw_db_connection  # hjs 수정
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 logger = logging.getLogger('chatbot.product_search')
@@ -50,16 +52,14 @@ except Error as e:
     db_connection_pool = None
     logger.error(f"DB 커넥션 풀 생성 실패: {e}")
 
-def get_db_connection():
-    """데이터베이스 커넥션 풀에서 커넥션을 가져옵니다."""
+def _get_connection():
+    """커넥션 풀 우선, 실패 시 공용 헬퍼 사용"""  # hjs 수정
     if db_connection_pool:
         try:
             return db_connection_pool.get_connection()
-        except Error as e:
-            logger.error(f"DB 커넥션 풀에서 연결 가져오기 실패: {e}")
-            return None
-    logger.error("DB 커넥션 풀이 초기화되지 않았습니다.")
-    return None
+        except Error as err:
+            logger.error(f"DB 커넥션 풀에서 연결 가져오기 실패: {err}")
+    return get_raw_db_connection()
 
 def _format_product_from_db(p: Dict[str, Any]) -> Dict[str, Any]:
     """DB에서 가져온 상품 딕셔너리를 표준 포맷으로 정제합니다."""
@@ -113,7 +113,7 @@ class ProductSearchEngine:
     
     def _load_data_from_db(self):
         """DB에서 상품 데이터를 로드하고 RAG 검색을 위한 인덱스를 구축합니다."""
-        conn = get_db_connection()
+        conn = _get_connection()
         if not conn:
             logger.error("DB 연결 실패로 상품 데이터를 로드할 수 없습니다.")
             return
@@ -154,8 +154,21 @@ class ProductSearchEngine:
         Text2SQL 또는 RAG를 사용하여 상품을 검색하고, LLM으로 결과를 필터링합니다.
         """
         # state에서 쿼리와 슬롯을 가져옵니다. 재작성된 텍스트를 우선 사용합니다.
+        # query = state.rewrite.get('text', state.query)
+        # slots = state.slots or {}
         query = state.rewrite.get('text', state.query)
-        slots = state.slots or {}
+        slots = dict(state.slots or {})  # hjs 수정 # 멀티턴 기능
+
+        history_context = summarize_product_search_with_history(state, query)  # hjs 수정 # 멀티턴 기능
+        if history_context.get("has_previous_search"):
+            history_slots = history_context.get("last_slots") or {}
+            slots = {**history_slots, **slots}  # hjs 수정 # 멀티턴 기능
+
+            if (not query or query.strip() == "") and history_context.get("recent_queries"):
+                query = history_context["recent_queries"][-1]
+
+            if history_context.get("recent_candidates") and not state.search.get("candidates"):
+                state.search["candidates"] = history_context["recent_candidates"]  # hjs 수정 # 멀티턴 기능
 
         # hjs 수정: LLM 기반 의미 확장으로 쿼리 보강(하드코딩 매핑 제거)
         query, slots = self._llm_expand_query(query, slots)
@@ -421,7 +434,7 @@ SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN s
         return True
 
     def _execute_sql(self, sql: str) -> List[Dict[str, Any]]:
-        conn = get_db_connection()
+        conn = _get_connection()
         if not conn: return []
         try:
             with conn.cursor(dictionary=True) as cursor:

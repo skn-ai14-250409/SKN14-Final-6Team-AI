@@ -49,14 +49,11 @@ app.include_router(orders_router)
 app.include_router(profile_router)
 app.include_router(recipes_router)
 
-# ==================== 세션 관리 시스템 최적화 ====================
-
 @app.on_event("startup")
 async def startup_event():
     """서버 시작 시 세션 관리 시스템 초기화"""
     logger.info("🚀 FastAPI 서버 시작")
 
-    # 자동 세션 정리 스케줄러 시작
     try:
         schedule_session_cleanup(
             interval_minutes=10,
@@ -91,7 +88,6 @@ async def get_session_info():
         stats = get_session_statistics()
         sessions = get_session_info()
 
-        # 메모리 사용량 정보 (선택적)
         memory_info = {}
         try:
             import psutil
@@ -137,7 +133,6 @@ async def manual_session_cleanup():
         logger.error(f"수동 세션 정리 실패: {e}")
         return {"error": str(e)}
 
-# ---------------- 조사(을/를) 헬퍼 ----------------
 def _josa_eul_reul(word: str) -> str:
     if not word:
         return "을"
@@ -214,7 +209,6 @@ def _get_user_display_name(user_id: str) -> str | None:
         return None
     return None
 
-# --- 파일 상단 어딘가에 전역 캐시 준비 ---
 from time import time
 
 LAST_USER_MSG   = {}
@@ -224,7 +218,6 @@ LAST_USER_CS    = {}
 REFUND_KEYWORDS = ("환불", "교환", "반품")
 
 
-# 비전 레시피 전용 API 추가
 @app.post("/api/chat/vision")
 async def chat_vision_api(
     message: str = Form(...),
@@ -234,7 +227,6 @@ async def chat_vision_api(
 ):
     """비전 AI 기반 레시피 검색 API"""
     try:
-        # 이미지를 base64로 변환
         image_content = await image.read()
         import base64
         image_base64 = base64.b64encode(image_content).decode('utf-8')
@@ -248,7 +240,6 @@ async def chat_vision_api(
             vision_mode=True
         )
 
-        # 비침투 로깅 훅
         try:
             if state.session_id:
                 db_audit.ensure_chat_session(state.user_id, state.session_id, status='active')
@@ -260,7 +251,6 @@ async def chat_vision_api(
         except Exception:
             pass
 
-        # 워크플로우 실행
         final_state = run_workflow(state)
 
         if isinstance(final_state, dict):
@@ -270,16 +260,12 @@ async def chat_vision_api(
                     setattr(converted_state, key, value)
             final_state = converted_state
 
-        # 장바구니 상태 업데이트
         latest_cart_state = cart_order.view_cart(final_state)
         final_state.update(latest_cart_state)
 
-        # 응답 메시지 구성
         response_text = f"{len(final_state.recipe['results'])}개의 레시피를 찾았습니다."
 
-        # 빠른 분석 모드인 경우 간단한 음식 이름만 반환
         if getattr(state, 'quick_analysis', False):
-            # vision_recipe에서 음식 이름 추출
             food_analysis = getattr(final_state, 'food_analysis', {})
             food_name = food_analysis.get('food_name')
             if food_name:
@@ -296,7 +282,7 @@ async def chat_vision_api(
             'cs': getattr(final_state, 'cs', {}),
             'metadata': {'session_id': final_state.session_id or state.session_id}
         }
-        # 비침투 로깅 훅
+
         try:
             if state.session_id and response_text:
                 db_audit.insert_history(state.session_id, 'bot', response_text)
@@ -309,7 +295,6 @@ async def chat_vision_api(
         logger.error(f"Vision Chat API Error: {e}", exc_info=True)
         return JSONResponse(status_code=500, content={"detail": "비전 채팅 처리 중 서버 오류 발생"})
 
-# 메인 챗봇 API
 @app.post("/api/chat")
 async def chat_api(request: Request):
     """메인 챗봇 API 엔드포인트 (메시지 기반 상호작용)"""
@@ -377,10 +362,14 @@ async def chat_api(request: Request):
                         'cs': last_cs_payload,
                         'metadata': {'session_id': state.session_id}
                     })
-        
+
         add_to_history(state, 'user', state.query,
                         message_type='text',
-                        intent=state.route.get("target", "unkown"))
+                        intent=state.route.get("target", "unknown"),
+                        slots=state.slots,
+                        rewrite=state.rewrite,
+                        search=state.search,
+                        cart=state.cart)
 
         final_state = run_workflow(state)
 
@@ -471,7 +460,11 @@ async def chat_api(request: Request):
 
         add_to_history(final_state, "assistant", response_text,
                         message_type='response',
-                        intent=final_state.route.get("target", "unkown"))
+                        intent=final_state.route.get("target", "unknown"),
+                        slots=final_state.slots,
+                        search=final_state.search,
+                        cart=final_state.cart,
+                        meta=final_state.meta)
         
         manage_history_length(final_state, max_messages=15)
 
