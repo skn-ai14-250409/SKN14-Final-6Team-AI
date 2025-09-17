@@ -6,21 +6,12 @@ FastAPI와 Django User 모델을 연결하여 회원가입/로그인 처리
 import hashlib
 import uuid
 from datetime import datetime
-from typing import Optional, Dict, Any
-import mysql.connector
+from typing import Dict, Any
 from mysql.connector import Error
+from utils.db import get_db_connection as _get_db_connection
 import logging
 
 logger = logging.getLogger(__name__)
-
-# DB 연결 설정 (기존과 동일)
-DB_CONFIG = {
-    'host': '127.0.0.1',
-    'user': 'qook_user',
-    'password': 'qook_pass',
-    'database': 'qook_chatbot',
-    'port': 3306
-}
 
 class DjangoAuthManager:
     """Django 스타일 인증 관리자"""
@@ -63,14 +54,13 @@ class DjangoAuthManager:
         
         try:
             with conn.cursor() as cursor:
-                # 이메일 중복 확인
+
                 cursor.execute("SELECT user_id FROM userinfo_tbl WHERE email = %s", (user_data['email'],))
                 if cursor.fetchone():
                     return {"success": False, "error": "이미 가입된 이메일입니다"}
-                
-                # 사용자 ID 생성
+
                 user_id = f"user_{uuid.uuid4().hex[:8]}"
-                # userinfo_tbl에 기본 정보 저장
+
                 cursor.execute("""
                     INSERT INTO userinfo_tbl (user_id, name, birth_date, email, phone_num, address, post_num)
                     VALUES (%s, %s, %s, %s, %s, %s, %s)
@@ -84,7 +74,7 @@ class DjangoAuthManager:
                     user_data.get('post_num', '')
                 ))
                 
-                # user_detail_tbl에 상세 정보 저장
+
                 cursor.execute("""
                     INSERT INTO user_detail_tbl (user_id, gender, age, allergy, vegan, house_hold, unfavorite, membership)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
@@ -98,8 +88,7 @@ class DjangoAuthManager:
                     user_data.get('unfavorite'),
                     user_data.get('membership', 'basic')
                 ))
-                
-                # Django 스타일 auth_user 테이블에도 저장 (호환성)
+
                 password_hash = self.hash_password(user_data['password'])
                 cursor.execute("""
                     INSERT INTO auth_user (id, username, email, password, first_name, last_name, is_active, is_staff, is_superuser, date_joined, last_login)
@@ -111,9 +100,9 @@ class DjangoAuthManager:
                     password_hash,
                     user_data['name'],
                     '',
-                    1,  # is_active
-                    0,  # is_staff
-                    0,  # is_superuser
+                    1,  
+                    0,  
+                    0,  
                     datetime.now(),
                     None
                 ))
@@ -143,7 +132,7 @@ class DjangoAuthManager:
         
         try:
             with conn.cursor(dictionary=True) as cursor:
-                # 사용자 정보 조회
+
                 cursor.execute("""
                     SELECT u.user_id, u.name, u.email, a.password, ud.membership
                     FROM userinfo_tbl u
@@ -155,12 +144,10 @@ class DjangoAuthManager:
                 user = cursor.fetchone()
                 if not user:
                     return {"success": False, "error": "등록되지 않은 이메일입니다"}
-                
-                # 비밀번호 확인
+
                 if not self.verify_password(password, user['password']):
                     return {"success": False, "error": "비밀번호가 일치하지 않습니다"}
-                
-                # 로그인 시간 업데이트
+
                 cursor.execute("UPDATE auth_user SET last_login = %s WHERE id = %s", 
                              (datetime.now(), user['user_id']))
                 conn.commit()
@@ -213,12 +200,10 @@ class DjangoAuthManager:
                 conn.close()
     
     def get_db_connection(self):
-        """데이터베이스 연결"""
-        try:
-            return mysql.connector.connect(**DB_CONFIG)
-        except Error as e:
-            logger.error(f"DB 연결 실패: {e}")
-            return None
+        """데이터베이스 연결"""  
+        conn = _get_db_connection()
+        if not conn:
+            logger.error('DB 연결 실패')
+        return conn
 
-# 전역 인증 관리자 인스턴스
 auth_manager = DjangoAuthManager()

@@ -1,9 +1,8 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
-import mysql.connector
 from mysql.connector import Error
-import os
+from utils.db import get_db_connection
 
 
 class HistoryRequest(BaseModel):
@@ -16,19 +15,6 @@ class ChatHistoryRequest(BaseModel):
 
 
 orders_router = APIRouter(prefix="/api/orders", tags=["orders"])
-
-
-def get_db_connection():
-    try:
-        return mysql.connector.connect(
-            host=os.getenv("DB_HOST", "127.0.0.1"),
-            user=os.getenv("DB_USER", "qook_user"),
-            password=os.getenv("DB_PASSWORD", "qook_pass"),
-            database=os.getenv("DB_NAME", "qook_chatbot"),
-            port=int(os.getenv("DB_PORT", "3306")),
-        )
-    except Error:
-        return None
 
 
 @orders_router.post("/history")
@@ -46,7 +32,7 @@ async def get_order_history(req: HistoryRequest) -> Dict[str, Any]:
             )
             cur.execute(sql, (req.user_id, int(req.limit or 20)))
             rows = cur.fetchall() or []
-            # 정규화
+
             items: List[Dict[str, Any]] = []
             for r in rows:
                 items.append(

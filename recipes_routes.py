@@ -1,25 +1,10 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
-import mysql.connector
 from mysql.connector import Error
-import os
+from utils.db import get_db_connection
 
-# hjs 수정: 레시피 즐겨찾기 라우터
-router = APIRouter(prefix="/api/recipes", tags=["recipes"])  # hjs 수정
-
-
-def get_db_connection():
-    try:
-        return mysql.connector.connect(
-            host=os.getenv("DB_HOST", "127.0.0.1"),
-            user=os.getenv("DB_USER", "qook_user"),
-            password=os.getenv("DB_PASSWORD", os.getenv("DB_PASS", "qook_pass")),
-            database=os.getenv("DB_NAME", "qook_chatbot"),
-            port=int(os.getenv("DB_PORT", "3306")),
-        )
-    except Error:
-        return None
+router = APIRouter(prefix="/api/recipes", tags=["recipes"])
 
 
 class FavoriteAddRequest(BaseModel):
@@ -76,7 +61,7 @@ async def add_favorite(req: FavoriteAddRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail="DB 연결 실패")
     try:
         with conn.cursor() as cur:
-            # 중복 확인
+
             sel = "SELECT 1 FROM recipe_favorite_tbl WHERE user_id=%s AND url_hash=SHA2(%s,256) LIMIT 1"
             cur.execute(sel, (req.user_id, req.recipe_url))
             if cur.fetchone():
@@ -141,7 +126,7 @@ async def bulk_sync_favorites(req: FavoriteBulkSyncRequest) -> Dict[str, Any]:
             skipped = 0
             for it in (req.items or []):
                 try:
-                    # 이미 있으면 skip
+
                     cur.execute(
                         "SELECT 1 FROM recipe_favorite_tbl WHERE user_id=%s AND url_hash=SHA2(%s,256) LIMIT 1",
                         (req.user_id, it.recipe_url)
@@ -169,4 +154,3 @@ async def bulk_sync_favorites(req: FavoriteBulkSyncRequest) -> Dict[str, Any]:
                 conn.close()
         except Exception:
             pass
-
