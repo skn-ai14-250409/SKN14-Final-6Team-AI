@@ -30,10 +30,10 @@ from policy import (
     should_exclude_recipe_content
 )
 
-# 로거 설정
+from utils.chat_history import save_recipe_search_result, generate_alternative_search_strategy
+
 logger = logging.getLogger("RECIPE_SEARCH")
 
-# --- 환경 변수 및 클라이언트 설정 ---
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 
 try:
@@ -46,7 +46,6 @@ except ImportError:
     openai_client = None
     logger.warning("OpenAI package not available. LLM-based features will be disabled.")
 
-# --- DB 설정 ---
 DB_CONFIG = {
     'host': os.getenv('DB_HOST', '127.0.0.1'),
     'user': os.getenv('DB_USER', 'qook_user'),
@@ -56,49 +55,234 @@ DB_CONFIG = {
 }
 
 # --- 메인 라우팅 함수 ---
+# def recipe_search(state: ChatState) -> Dict[str, Any]:
+#     """
+#     사용자 쿼리를 분석하여 두 가지 시나리오 중 하나를 실행합니다.
+#     1. 일반 레시피 검색
+#     2. 선택된 레시피의 재료 추천
+#     """
+#     logger.info("레시피 검색 프로세스 시작")
+#     query = state.query
+
+#     try:
+#         # 시나리오 2: 사용자가 사이드바에서 특정 레시피의 '재료 추천받기'를 클릭한 경우
+#         if "선택된 레시피:" in query and "URL:" in query:
+#             logger.info("시나리오 2: 선택된 레시피 재료 추천 시작")
+#             recipe = _handle_selected_recipe(query, state)
+#             return recipe
+        
+#         # 시나리오 1: 일반적인 레시피 관련 질문인 경우
+#         else:
+#             logger.info("시나리오 1: 일반 레시피 검색 시작")
+#             rewrite_query = state.rewrite.get("text", "")
+#             return _handle_general_recipe_search(query, rewrite_query, state)
+
+#     except Exception as e:
+#         logger.error(f"레시피 검색 중 심각한 오류 발생: {e}", exc_info=True)
+#         return {
+#             "recipe": {"results": [], "ingredients": [], "error": str(e)},
+#             "response": "죄송합니다, 레시피를 검색하는 중 오류가 발생했습니다."
+#         }
+
 def recipe_search(state: ChatState) -> Dict[str, Any]:
     """
-    사용자 쿼리를 분석하여 두 가지 시나리오 중 하나를 실행합니다.
-    1. 일반 레시피 검색
-    2. 선택된 레시피의 재료 추천
+    히스토리 기반 레시피 검색 (재검색 개선 버전)
+    - 기존 시나리오 1, 2 완전 유지
+    - 검색 완료 후 히스토리 저장 추가
+    - 재검색일 경우 이전 결과 필터링 적용
+    - 실패 시 기존 방식으로 완벽 폴백
     """
-    logger.info("레시피 검색 프로세스 시작")
+    logger.info("히스토리 기반 레시피 검색 프로세스 시작")
     query = state.query
 
     try:
-        # 시나리오 2: 사용자가 사이드바에서 특정 레시피의 '재료 추천받기'를 클릭한 경우
+        # 재검색 여부 확인 (안전한 방식)
+        is_alternative_search = False
+        search_strategy = None
+        previous_urls = []
+
+        try:
+            search_context = state.slots.get('search_context')
+            if search_context and search_context.get('type') == 'alternative':
+                is_alternative_search = True
+                logger.info(f"재검색 감지: {search_context.get('intent_scope', 'unknown')}")
+
+                # 대안 검색 전략 생성
+                if search_context.get('previous_dish'):
+                    # 실제 히스토리에서 이전 검색 결과 가져오기
+                    from utils.chat_history import get_recent_recipe_search_context
+                    recent_context = get_recent_recipe_search_context(state, query)
+
+                    previous_results = []
+                    if recent_context["has_previous_search"] and recent_context["most_recent_search"]:
+                        previous_results = recent_context["most_recent_search"].get("results", [])
+                        logger.info(f"히스토리에서 가져온 이전 검색 결과: {len(previous_results)}개")
+
+                    previous_search = {
+                        "search_query": search_context.get('previous_dish'),
+                        "query_type": "specific_dish",
+                        "results": previous_results  # 실제 히스토리 결과 사용
+                    }
+                    search_strategy = generate_alternative_search_strategy(previous_search, query)
+                    previous_urls = search_strategy.get('exclude_urls', [])
+                    logger.info(f"대안 검색 전략: {search_strategy.get('strategy_type', 'unknown')}")
+                    logger.info(f"제외할 URL: {len(previous_urls)}개")
+
+        except Exception as e:
+            logger.warning(f"재검색 분석 실패, 기존 방식 사용: {e}")
+            is_alternative_search = False
+
+        # 기존 시나리오 분기 (완전 동일)
         if "선택된 레시피:" in query and "URL:" in query:
             logger.info("시나리오 2: 선택된 레시피 재료 추천 시작")
-            recipe = _handle_selected_recipe(query, state)
-            return recipe
-        
-        # 시나리오 1: 일반적인 레시피 관련 질문인 경우
+            result = _handle_selected_recipe(query, state)
         else:
             logger.info("시나리오 1: 일반 레시피 검색 시작")
             rewrite_query = state.rewrite.get("text", "")
-            return _handle_general_recipe_search(query, rewrite_query, state)
+
+            # 재검색인 경우 검색 전략 적용
+            if is_alternative_search and search_strategy:
+                result = _handle_general_recipe_search_with_history(
+                    query, rewrite_query, state, search_strategy, previous_urls
+                )
+            else:
+                # 기존 방식 그대로 사용
+                result = _handle_general_recipe_search(query, rewrite_query, state)
+
+        # 검색 완료 후 히스토리 저장 (실패해도 무시)
+        try:
+            recipe_results = result.get("recipe", {}).get("results")
+            if recipe_results:
+                logger.info(f"히스토리 저장 대상 레시피: {len(recipe_results)}개")
+
+                # URL 정보 로깅
+                for i, r in enumerate(recipe_results[:3]):
+                    logger.info(f"  {i+1}. {r.get('title', 'No title')[:30]}... | URL: {r.get('url', 'No URL')[:50]}...")
+
+                search_context_to_save = {
+                    "query_type": "specific_dish",  # LLM으로 개선 가능
+                    "original_query": query,
+                    "search_query": rewrite_query or query,
+                    "results": [
+                        {"title": r.get("title", ""), "url": r.get("url", "")}
+                        for r in recipe_results[:3]  # 처음 3개만 저장
+                    ],
+                    "search_type": "alternative" if is_alternative_search else "initial"
+                }
+
+                logger.info(f"저장할 히스토리 결과: {len(search_context_to_save['results'])}개")
+                save_recipe_search_result(state, search_context_to_save)
+                logger.info("검색 히스토리 저장 완료")
+            else:
+                logger.warning("검색 결과가 없어서 히스토리 저장하지 않음")
+        except Exception as e:
+            logger.warning(f"히스토리 저장 실패 (무시): {e}")
+
+        return result
 
     except Exception as e:
-        logger.error(f"레시피 검색 중 심각한 오류 발생: {e}", exc_info=True)
+        logger.error(f"히스토리 기반 레시피 검색 실패, 기존 방식으로 폴백: {e}", exc_info=True)
+        # 완전 실패 시 기존 방식으로 폴백
+        try:
+            if "선택된 레시피:" in query and "URL:" in query:
+                return _handle_selected_recipe(query, state)
+            else:
+                rewrite_query = state.rewrite.get("text", "")
+                return _handle_general_recipe_search(query, rewrite_query, state)
+        except Exception as fallback_e:
+            logger.error(f"폴백도 실패: {fallback_e}")
+            return {
+                "recipe": {"results": [], "ingredients": [], "error": str(fallback_e)},
+                "response": "죄송합니다, 레시피를 검색하는 중 오류가 발생했습니다."
+            }
+
+def _handle_general_recipe_search_with_history(
+    original_query: str, rewrite_query: str, state: ChatState,
+    search_strategy: Dict[str, Any], previous_urls: List[str]
+) -> Dict[str, Any]:
+    """히스토리 기반 레시피 검색 (재검색 전용)"""
+    logger.info(f"히스토리 기반 검색 시작: 전략={search_strategy.get('strategy_type', 'unknown')}")
+
+    try:
+        user_preferences = {}
+        if state and state.user_id:
+            user_preferences = get_user_preferences(state.user_id)
+            logger.info(f"사용자 {state.user_id} 개인 선호도: {user_preferences}")
+
+        strategy_type = search_strategy.get('strategy_type', 'SAME_DISH_ALTERNATIVE')
+        alternative_queries = search_strategy.get('alternative_queries', [])
+
+        if alternative_queries:
+            base_query = alternative_queries[0]
+            logger.info(f"LLM 생성 대안 쿼리 사용: {base_query}")
+        else:
+            base_query = _extract_recipe_query(original_query, rewrite_query)
+
+        if user_preferences:
+            personalized_query, exclusion_keywords = create_personalized_search_keywords(base_query, user_preferences)
+            logger.info(f"개인맞춤화된 쿼리: {personalized_query}")
+            recipe_query = personalized_query
+        else:
+            recipe_query = base_query
+            exclusion_keywords = []
+
+        # Tavily로 외부 레시피 검색 (히스토리 기반)
+        recipe_results = _search_with_tavily_filtered(recipe_query, user_preferences, previous_urls)
+
+        # 중복 URL 필터링 결과가 부족한 경우 추가 검색
+        if len(recipe_results) < 2 and len(alternative_queries) > 1:
+            logger.info("결과 부족으로 추가 대안 쿼리 검색")
+            for alt_query in alternative_queries[1:3]:  # 2-3번째 대안 쿼리 시도
+                additional_results = _search_with_tavily_filtered(alt_query, user_preferences, previous_urls)
+                recipe_results.extend(additional_results)
+                if len(recipe_results) >= 3:
+                    break
+
+        if recipe_results:
+            personalized_msg = ""
+            if user_preferences.get("vegan"):
+                personalized_msg = " (비건 레시피 위주로 검색됨)"
+            elif user_preferences.get("allergy") or user_preferences.get("unfavorite"):
+                personalized_msg = " (개인 선호도 반영됨)"
+
+            strategy_msg = ""
+            if strategy_type == "SAME_DISH_ALTERNATIVE":
+                strategy_msg = " 다른 레시피들을 찾았습니다"
+            elif strategy_type == "DIFFERENT_MENU":
+                strategy_msg = " 새로운 요리들을 추천합니다"
+
+            message = (
+                f"{len(recipe_results)}개의{strategy_msg}{personalized_msg}.\n\n"
+                "💡 원하는 레시피를 클릭하여 '재료 추천받기' 버튼을 누르면 필요한 재료들을 추천해드립니다!"
+            )
+        else:
+            message = "새로운 레시피를 찾지 못했습니다. 다른 키워드로 검색해보세요."
+
+        logger.info(f"히스토리 기반 검색 완료: {len(recipe_results)}개 결과")
         return {
-            "recipe": {"results": [], "ingredients": [], "error": str(e)},
-            "response": "죄송합니다, 레시피를 검색하는 중 오류가 발생했습니다."
+            "recipe": {
+                "results": recipe_results,
+                "ingredients": [],
+                "search_query": recipe_query,
+                "search_strategy": strategy_type
+            },
+            "response": message
         }
 
-# --- 시나리오 1: 일반 레시피 검색 핸들러 ---
+    except Exception as e:
+        logger.error(f"히스토리 기반 검색 실패, 기존 방식으로 폴백: {e}")
+        return _handle_general_recipe_search(original_query, rewrite_query, state)
+
 def _handle_general_recipe_search(original_query: str, rewrite_query: str, state: ChatState = None) -> Dict[str, Any]:
     """Tavily API로 레시피를 검색하고 사이드바에 표시할 URL 목록을 반환합니다."""
     
-    # 개인맞춤화: 사용자 선호도 조회
     user_preferences = {}
     if state and state.user_id:
         user_preferences = get_user_preferences(state.user_id)
         logger.info(f"사용자 {state.user_id} 개인 선호도: {user_preferences}")
     
-    # LLM 또는 규칙 기반으로 검색에 최적화된 쿼리 생성
     base_query = _extract_recipe_query(original_query, rewrite_query)
     
-    # 개인맞춤화: 검색 쿼리에 선호도 반영
     if user_preferences:
         personalized_query, exclusion_keywords = create_personalized_search_keywords(base_query, user_preferences)
         logger.info(f"개인맞춤화된 쿼리: {personalized_query}")
@@ -108,10 +292,8 @@ def _handle_general_recipe_search(original_query: str, rewrite_query: str, state
         recipe_query = base_query
         exclusion_keywords = []
     
-    # Tavily로 외부 레시피 검색
     recipe_results = _search_with_tavily(recipe_query, user_preferences)
     
-    # 프론트엔드로 보낼 최종 메시지 생성
     if recipe_results:
         personalized_msg = ""
         if user_preferences.get("vegan"):
@@ -128,25 +310,22 @@ def _handle_general_recipe_search(original_query: str, rewrite_query: str, state
 
     return {
         "recipe": {
-            "results": recipe_results,      # 사이드바에 표시될 레시피 URL 목록
-            "ingredients": [],              # 이 시나리오에서는 재료 목록이 비어있음
+            "results": recipe_results, 
+            "ingredients": [],
             "search_query": recipe_query
         },
-        "response": message  # chat.js가 인식할 수 있도록 'response' 키 사용
+        "response": message
     }
 
-# --- 시나리오 2: 선택된 레시피 재료 추천 핸들러 ---
 
 def _handle_selected_recipe(query: str, state: ChatState = None) -> Dict[str, Any]:
     """선택된 레시피 URL을 크롤링하고, 재료를 추출하여 DB 상품과 매핑합니다."""
     
-    # 개인맞춤화: 사용자 선호도 조회
     user_preferences = {}
     if state and state.user_id:
         user_preferences = get_user_preferences(state.user_id)
         logger.info(f"사용자 {state.user_id} 개인 선호도: {user_preferences}")
     
-    # 쿼리에서 URL 추출
     recipe_url = _extract_recipe_url(query)
     if not recipe_url:
         logger.info("레시피 URL을 찾지 못함")
@@ -155,7 +334,6 @@ def _handle_selected_recipe(query: str, state: ChatState = None) -> Dict[str, An
             "response": "레시피 URL을 찾을 수 없어 재료를 추천할 수 없습니다."
         }
     
-    # URL 크롤링 및 LLM을 통한 내용 구조화
     structured_content = _scrape_and_structure_recipe(recipe_url)
     if not structured_content or not structured_content.get("ingredients"):
         logger.info("레시피 내용을 분석할 수 없음")
@@ -166,36 +344,28 @@ def _handle_selected_recipe(query: str, state: ChatState = None) -> Dict[str, An
     
     logger.info(f"레시피 구조화 완료: {structured_content.get('title', '제목 없음')}")
     
-    # 추출된 재료 목록 (예: ["사과", "돼지고기", "양파"])
     extracted_ingredients = structured_content.get("ingredients", [])
     
-    # 개인맞춤화: 사용자 선호도에 맞지 않는 재료 필터링
     if user_preferences:
         filtered_ingredients = filter_recipe_ingredients(extracted_ingredients, user_preferences)
         logger.info(f"개인맞춤화 필터링: {len(extracted_ingredients)} -> {len(filtered_ingredients)}")
         extracted_ingredients = filtered_ingredients
         
-        # 필터링된 재료로 구조화된 컨텐츠 업데이트
         structured_content["ingredients"] = extracted_ingredients
     
-    # ✅ 추가: state에서 rewrite.keywords도 활용
     additional_keywords = []
     if state and state.rewrite.get("keywords"):
-        # 재료 관련 키워드만 필터링 (구매, 재료 등은 제외)
         filtered_keywords = [
             k for k in state.rewrite["keywords"] 
             if k not in ['재료', '구매', '상품', '추천', '쇼핑몰']
         ]
         additional_keywords.extend(filtered_keywords)
     
-    # 재료명과 키워드 합치기 (중복 제거)
     all_search_terms = list(set(extracted_ingredients + additional_keywords))
     logger.info(f"DB 검색 키워드: {all_search_terms}")
     
-    # 재료명으로 DB의 상품 목록 검색 (LIKE 검색)
     matched_products = _get_product_details_from_db(all_search_terms, user_preferences)
     
-    # AIMessage로 보여줄 레시피 내용 포맷팅
     formatted_recipe_message = _format_recipe_content(structured_content, user_preferences)
     
     logger.info(f"레시피 처리 완료: 재료 {len(all_search_terms)}개, 추천 상품 {len(matched_products)}개")
@@ -231,11 +401,9 @@ def _get_product_details_from_db(ingredient_names: List[str], user_preferences: 
 
     try:
         with conn.cursor(dictionary=True) as cursor:
-            # 개인맞춤화: 사용자 선호도에 따른 제외 조건 생성
             exclusion_conditions = []
             
             if user_preferences:
-                # 비건 사용자의 경우 동물성 제품 제외
                 if user_preferences.get("vegan", False):
                     vegan_exclusions = [
                         "고기", "돼지", "소고기", "닭", "생선", "새우", "오징어", 
@@ -246,24 +414,20 @@ def _get_product_details_from_db(ingredient_names: List[str], user_preferences: 
                         exclusion_conditions.append(f"p.product NOT LIKE '%{exclusion}%'")
                     logger.info("비건 사용자 - 동물성 제품 제외 조건 추가")
                 
-                # 알러지 제외
                 if user_preferences.get("allergy"):
                     allergy_items = [item.strip() for item in user_preferences["allergy"].split(",")]
                     for allergy in allergy_items:
                         exclusion_conditions.append(f"p.product NOT LIKE '%{allergy}%'")
                     logger.info(f"알러지 제외 조건 추가: {allergy_items}")
                 
-                # 싫어하는 음식 제외
                 if user_preferences.get("unfavorite"):
                     unfavorite_items = [item.strip() for item in user_preferences["unfavorite"].split(",")]
                     for unfavorite in unfavorite_items:
                         exclusion_conditions.append(f"p.product NOT LIKE '%{unfavorite}%'")
                     logger.info(f"선호도 제외 조건 추가: {unfavorite_items}")
             
-            # 여러 LIKE 조건을 OR로 연결하는 쿼리 생성
             where_clauses = ' OR '.join(['p.product LIKE %s'] * len(ingredient_names))
             
-            # 제외 조건이 있다면 AND로 추가
             exclusion_clause = ""
             if exclusion_conditions:
                 exclusion_clause = " AND " + " AND ".join(exclusion_conditions)
@@ -275,13 +439,11 @@ def _get_product_details_from_db(ingredient_names: List[str], user_preferences: 
                 LIMIT 15
             """
             
-            # LIKE 검색을 위한 파라미터 생성 (예: '사과' -> '%사과%')
             params = [f"%{name}%" for name in ingredient_names]
             
             cursor.execute(sql, params)
             products = cursor.fetchall()
 
-            # 프론트엔드가 기대하는 형태로 데이터 포맷팅
             formatted_products = []
             for p in products:
                 formatted_products.append({
@@ -301,7 +463,6 @@ def _get_product_details_from_db(ingredient_names: List[str], user_preferences: 
         if conn and conn.is_connected():
             conn.close()
 
-# --- Helper Functions: 외부 API 및 크롤링 ---
 def _is_crawlable_url(url: str) -> bool:
     """URL이 크롤링 가능한지 간단히 판단합니다."""
     from urllib.parse import urlparse
@@ -310,12 +471,10 @@ def _is_crawlable_url(url: str) -> bool:
         parsed = urlparse(url.lower())
         domain = parsed.netloc.replace('www.', '')
         
-        # 확실히 제외할 사이트들 (동영상/SNS)
         excluded_patterns = ['youtube.', 'youtu.be', 'instagram.', 'facebook.', 'tiktok.', 'pinterest.']
         if any(pattern in domain for pattern in excluded_patterns):
             return False
         
-        # HTML 페이지인지 간단 확인 (확장자 체크)
         path = parsed.path.lower()
         if path.endswith(('.mp4', '.avi', '.mov', '.pdf', '.jpg', '.png', '.gif')):
             return False
@@ -332,7 +491,6 @@ def _quick_validate_url(url: str) -> bool:
         headers = {'User-Agent': 'Mozilla/5.0'}
         response = requests.head(url, headers=headers, timeout=3)
         
-        # 200대 응답이고 HTML 콘텐츠인지 확인
         if 200 <= response.status_code < 300:
             content_type = response.headers.get('content-type', '').lower()
             return 'text/html' in content_type
@@ -341,84 +499,77 @@ def _quick_validate_url(url: str) -> bool:
     except Exception:
         return False
 
-def _search_with_tavily(query: str, user_preferences: Dict[str, Any] = None) -> List[Dict[str, Any]]:
-    """Tavily API로 레시피를 검색하고, 결과를 섞은 후 검증합니다."""
+def _search_with_tavily_filtered(query: str, user_preferences: Dict[str, Any] = None, exclude_urls: List[str] = None) -> List[Dict[str, Any]]:
+    """히스토리 기반 Tavily 검색 (이전 결과 제외)"""
+    exclude_urls = exclude_urls or []
+
     try:
         from tavily import TavilyClient
         client = TavilyClient(api_key=TAVILY_API_KEY)
-        
-        logger.info(f"Tavily 검색 실행: '{query}'")
-        
-        # 개인맞춤화: 검색 쿼리에 제외 키워드 추가
+
+        logger.info(f"히스토리 기반 Tavily 검색 실행: '{query}' (제외 URL: {len(exclude_urls)}개)")
+
         exclusion_terms = ["-youtube", "-instagram", "-facebook", "-tiktok", "-blog.naver.com"]
-        
-        # 사용자 선호도 기반 제외 키워드 추가
+
         if user_preferences:
-            # 비건 사용자의 경우 육류 관련 제외
             if user_preferences.get("vegan", False):
                 meat_exclusions = ["-고기", "-돼지고기", "-소고기", "-닭고기", "-생선", "-육류"]
                 exclusion_terms.extend(meat_exclusions)
                 logger.info("비건 사용자 - 육류 관련 검색 결과 제외")
-            
-            # 알러지 관련 제외
+
             if user_preferences.get("allergy"):
                 allergy_items = user_preferences["allergy"].split(",")
                 for item in allergy_items:
                     exclusion_terms.append(f"-{item.strip()}")
                 logger.info(f"알러지 기반 제외 키워드 추가: {allergy_items}")
-            
-            # 싫어하는 음식 제외
+
             if user_preferences.get("unfavorite"):
                 unfavorite_items = user_preferences["unfavorite"].split(",")
                 for item in unfavorite_items:
                     exclusion_terms.append(f"-{item.strip()}")
                 logger.info(f"선호도 기반 제외 키워드 추가: {unfavorite_items}")
-        
+
         enhanced_query = f"{query} 레시피 {' '.join(exclusion_terms)}"
-        
+
         search_result = client.search(
             query=enhanced_query,
             search_depth="basic",
-            max_results=20  # ## 변경점 2: 검색 결과 요청 개수를 20개로 늘림
+            max_results=30
         )
-        
-        # ## 변경점 3: 받아온 검색 결과를 리스트로 만들고 순서를 무작위로 섞음
+
         search_results_list = search_result.get("results", [])
         random.shuffle(search_results_list)
 
         validated_results = []
-        
-        # 무작위로 섞인 리스트를 순회하며 검증 시작
+
         for res in search_results_list:
             url = res.get("url", "")
-            
-            # 1단계: 기본 URL 패턴 검증
+
+            if url in exclude_urls:
+                logger.info(f"히스토리 기반 URL 제외: {url[:50]}...")
+                continue
+
             if not url or not _is_crawlable_url(url):
                 continue
-            
-            # 2단계: 실제 접근 가능성 검증 (네트워크 요청 최소화를 위해 필요한 만큼만)
+
             if not _quick_validate_url(url):
                 logger.info(f"접근 불가능한 URL 제외: {url}")
                 continue
-            
-            # 3단계: 개인맞춤화 필터링 - 제목과 내용 기반
+
             if user_preferences and should_exclude_recipe_content(
                 res.get("title", ""), res.get("content", ""), user_preferences
             ):
                 logger.info(f"개인 선호도에 의해 제외된 레시피: {res.get('title', 'Unknown')}")
                 continue
-            
-            # LLM으로 title과 content를 20~30글자로 요약
+
             original_title = res.get("title", "제목 없음")
             content = res.get("content", "")
-            
-            # 기본값 설정
+
             title = original_title[:30] + ("..." if len(original_title) > 30 else "")
             description = content[:150]
-            
+
             if openai_client and (original_title or content):
                 try:
-                    # 제목 요약
                     if original_title:
                         title_response = openai_client.chat.completions.create(
                             model="gpt-4o-mini",
@@ -429,11 +580,10 @@ def _search_with_tavily(query: str, user_preferences: Dict[str, Any] = None) -> 
                             temperature=0.1, max_tokens=20
                         )
                         title_summary = title_response.choices[0].message.content.strip()
-                        # 따옴표 제거
+                        
                         title_summary = title_summary.strip('"').strip("'")
                         title = title_summary[:30] + ("..." if len(title_summary) > 30 else "")
-                    
-                    # 내용 요약
+
                     if content:
                         desc_response = openai_client.chat.completions.create(
                             model="gpt-4o-mini",
@@ -446,7 +596,115 @@ def _search_with_tavily(query: str, user_preferences: Dict[str, Any] = None) -> 
                         desc_summary = desc_response.choices[0].message.content.strip()
                         description = desc_summary[:30] + ("..." if len(desc_summary) > 30 else "")
                 except Exception:
-                    pass  # 오류시 기본값 사용
+                    pass
+
+            validated_results.append({
+                "title": title,
+                "url": url,
+                "description": description
+            })
+
+            if len(validated_results) >= 3:
+                break
+
+        logger.info(f"히스토리 필터링된 레시피 URL: {len(validated_results)}개 (제외된 URL: {len(exclude_urls)}개)")
+        return validated_results
+
+    except Exception as e:
+        logger.error(f"히스토리 기반 Tavily 검색 실패: {e}")
+        return []
+
+def _search_with_tavily(query: str, user_preferences: Dict[str, Any] = None) -> List[Dict[str, Any]]:
+    """Tavily API로 레시피를 검색하고, 결과를 섞은 후 검증합니다."""
+    try:
+        from tavily import TavilyClient
+        client = TavilyClient(api_key=TAVILY_API_KEY)
+        
+        logger.info(f"Tavily 검색 실행: '{query}'")
+        
+        exclusion_terms = ["-youtube", "-instagram", "-facebook", "-tiktok", "-blog.naver.com", "-m.blog.naver.com"]
+
+        if user_preferences:
+            if user_preferences.get("vegan", False):
+                meat_exclusions = ["-고기", "-돼지고기", "-소고기", "-닭고기", "-생선", "-육류"]
+                exclusion_terms.extend(meat_exclusions)
+                logger.info("비건 사용자 - 육류 관련 검색 결과 제외")
+
+            if user_preferences.get("allergy"):
+                allergy_items = user_preferences["allergy"].split(",")
+                for item in allergy_items:
+                    exclusion_terms.append(f"-{item.strip()}")
+                logger.info(f"알러지 기반 제외 키워드 추가: {allergy_items}")
+
+            if user_preferences.get("unfavorite"):
+                unfavorite_items = user_preferences["unfavorite"].split(",")
+                for item in unfavorite_items:
+                    exclusion_terms.append(f"-{item.strip()}")
+                logger.info(f"선호도 기반 제외 키워드 추가: {unfavorite_items}")
+        
+        enhanced_query = f"{query} 레시피 {' '.join(exclusion_terms)}"
+        
+        search_result = client.search(
+            query=enhanced_query,
+            search_depth="basic",
+            max_results=20 
+        )
+        
+        search_results_list = search_result.get("results", [])
+        random.shuffle(search_results_list)
+
+        validated_results = []
+        
+        for res in search_results_list:
+            url = res.get("url", "")
+            
+            if not url or not _is_crawlable_url(url):
+                continue
+            
+            if not _quick_validate_url(url):
+                logger.info(f"접근 불가능한 URL 제외: {url}")
+                continue
+            
+            if user_preferences and should_exclude_recipe_content(
+                res.get("title", ""), res.get("content", ""), user_preferences
+            ):
+                logger.info(f"개인 선호도에 의해 제외된 레시피: {res.get('title', 'Unknown')}")
+                continue
+            
+            original_title = res.get("title", "제목 없음")
+            content = res.get("content", "")
+            
+            title = original_title[:30] + ("..." if len(original_title) > 30 else "")
+            description = content[:150]
+            
+            if openai_client and (original_title or content):
+                try:
+                    if original_title:
+                        title_response = openai_client.chat.completions.create(
+                            model="gpt-4o-mini",
+                            messages=[
+                                {"role": "system", "content": "다음 레시피 제목을 30글자 내로 간단명료하게 요약해줘. 예시: '자취생도 쉽게 만드는 초간단 김치찌개 레시피' / '자꾸 땡기는 마약양념의 매콤한 닭볶음탕 조리법"},
+                                {"role": "user", "content": f"제목 요약: {original_title}"}
+                            ],
+                            temperature=0.1, max_tokens=20
+                        )
+                        title_summary = title_response.choices[0].message.content.strip()
+                        title_summary = title_summary.strip('"').strip("'")
+                        title = title_summary[:30] + ("..." if len(title_summary) > 30 else "")
+                    
+                    if content:
+                        desc_response = openai_client.chat.completions.create(
+                            model="gpt-4o-mini",
+                            messages=[
+                                {"role": "system", "content": "다음 레시피 내용을 20~30글자로 간단명료하게 요약해줘. 답변 예시 1: 김치·참치 볶아 두부 올린 매콤찌개 완성. 답변 예시 2: 닭고기 데쳐 채소 넣고 매콤하게 끓인 닭볶음탕"},
+                                {"role": "user", "content": f"요약: {content[:300]}"}
+                            ],
+                            temperature=0.1, max_tokens=30
+                        )
+                        desc_summary = desc_response.choices[0].message.content.strip()
+                        description = desc_summary[:30] + ("..." if len(desc_summary) > 30 else "")
+                except Exception:
+                    pass
 
             validated_results.append({
                 "title": title,
@@ -454,7 +712,6 @@ def _search_with_tavily(query: str, user_preferences: Dict[str, Any] = None) -> 
                 "description": description            
             })
             
-            # 원하는 개수(3개)만큼 찾으면 중단
             if len(validated_results) >= 3:
                 break
         
@@ -486,7 +743,6 @@ def _scrape_and_structure_recipe(url: str) -> Optional[Dict[str, Any]]:
         logger.error(f"URL 크롤링 및 구조화 실패 {url}: {e}")
         return None
 
-# --- Helper Functions: LLM 처리 ---
 def _extract_recipe_query(original_query: str, rewrite_query: str = "") -> str:
     """사용자 쿼리에서 검색에 사용할 핵심 레시피명을 추출합니다."""
     if not openai_client:
@@ -530,7 +786,6 @@ def _get_all_items_from_db() -> List[str]:
 def _llm_extract_recipe_content(page_text: str) -> Dict[str, Any]:
     """LLM을 사용하여 웹페이지 텍스트에서 레시피 정보를 JSON 형태로 구조화합니다."""
     
-    # 🟢 새로 추가: DB에서 품목명 가져오기
     db_items = _get_all_items_from_db()
     db_items_str = ", ".join(db_items) if db_items else "품목 데이터를 가져올 수 없음"
     
@@ -722,7 +977,6 @@ def _format_recipe_content(structured_content: Dict[str, Any], user_preferences:
     if len(ingredients) > 10:
         ingredients_text += "\n- 등..."
 
-    # 개인맞춤화 메시지 추가
     personalized_note = ""
     if user_preferences:
         if user_preferences.get("vegan"):
