@@ -25,62 +25,18 @@ STATUS_LABEL = {
 }
 
 
-def _classify_cs_type(query: str, attachments: List[str]) -> str:
-    q = (query or "").strip()
-    if attachments:
-        return "cs_intake"
-    faq_keywords = [  # hjs 수정: 규정/faq 키워드 추가로 정책/약관 문의 포착 강화
-        "이용약관",
-        "개인정보",
-        "정책",
-        "약관",
-        "규정",
-        "faq",
-        "서비스",
-        "회원",
-        "가입",
-        "탈퇴",
-        "이용방법",
-        "사용법",
-        "어떻게",
-        "방법",
-    ]
-    return "faq_policy" if any(k in q for k in faq_keywords) else "cs_intake"
-
-
-# def _classify_cs_category(query: str, attachments: List[str]) -> str:
-#     q = (query or "").strip()
-#     if any(k in q for k in ["환불", "교환", "반품"]):
-#         return "환불"
-#     if attachments:
-#         return "상품문의"
-#     query_lower = q.lower()
-#     categories = {
-#         "배송": ["배송", "도착", "언제", "늦어", "안와", "느려", "빨리"],
-#         "환불": ["환불", "취소", "반품", "돌려", "돈", "계좌", "교환"],
-#         "상품문의": ["상품", "품질", "상태", "신선", "상함", "이상"],
-#         "주문변경": ["변경", "수정", "주소", "시간", "바꿔"],
-#         "결제": ["결제", "카드", "계좌", "승인", "실패", "오류"],
-#     }
-#     for category, keywords in categories.items():
-#         if any(keyword in query_lower for keyword in keywords):
-#             return category
-#     return "일반문의"
 
 def _classify_cs_category(query: str, attachments: List[str]) -> str:
-    # 0) 정규화
+
     q_raw = (query or "").strip()
     q = unicodedata.normalize("NFKC", q_raw).lower()
 
-    # 1) 첨부만 있고 텍스트가 거의 없으면 상품문의로 빠르게 처리
     if not q and attachments:
         return "상품문의"
 
-    # 2) 최우선 오버라이드 (취소/환불/교환 류는 가장 강한 의도)
     if any(k in q for k in ("환불", "반품", "교환", "취소", "철회", "환급", "반송")):
         return "환불"
 
-    # 3) 점수표 초기화
     scores: Dict[str, int] = {
         "배송": 0,
         "환불": 0,
@@ -89,7 +45,6 @@ def _classify_cs_category(query: str, attachments: List[str]) -> str:
         "결제": 0,
     }
 
-    # 4) 카테고리별 키워드
     keyword_map: Dict[str, List[str]] = {
         "배송": ["배송", "도착", "언제", "늦", "안 와", "안와", "느리", "빨리", "택배", "송장", "운송장", "추적", "배달", "분실", "파손"],
         "환불": ["환불", "취소", "반품", "교환", "철회", "환급", "반송", "환불해", "환불요청", "취소해"],
@@ -98,29 +53,23 @@ def _classify_cs_category(query: str, attachments: List[str]) -> str:
         "결제": ["결제", "카드", "계좌", "승인", "취소요청", "환불금", "pg", "영수증", "세금계산서", "입금", "환불처리"],
     }
 
-    # 5) 점수 계산
     for cat, kws in keyword_map.items():
         for kw in kws:
             if kw in q:
                 scores[cat] += 1
 
-    # 6) 첨부파일 힌트: 이미지가 있으면 상품문의 가중치 부여
     if attachments:
         img_ext = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".heic", ".heif")
         if any(str(a).lower().endswith(img_ext) for a in attachments):
             scores["상품문의"] += 2
 
-    # 7) 충돌 해소 규칙
-    # 7-1) 배송 vs 주문변경: 주소/배송지/시간/날짜가 있으면 주문변경 쪽에 가중치
     if scores["배송"] and scores["주문변경"]:
         if any(k in q for k in ("주소", "배송지", "시간", "날짜")):
             scores["주문변경"] += 1
 
-    # 7-2) '계좌/환불금' 등장 시 결제보다 환불 의도 강화
     if any(k in q for k in ("계좌", "환불금")):
         scores["환불"] += 1
 
-    # 8) 최종 선택
     best_cat, best_score = max(scores.items(), key=lambda x: x[1])
     if best_score == 0:
         return "일반문의"
@@ -236,20 +185,18 @@ def handle_order_list_inquiry(state: ChatState) -> Dict[str, Any]:
             "order_date": _fmt_dt(o.get("order_date")),
             "order_status": o.get("order_status", ""),
             "total_price": o.get("total_price"),
-            # 선택: 있으면 노출 (없으면 프론트에서 무시)
             "carrier": o.get("carrier") or "",
             "tracking_no": o.get("tracking_no") or o.get("tracking_number") or "",
             "expected_delivery": _fmt_date(o.get("expected_delivery")) if o.get("expected_delivery") else "",
         })
 
-    # 프론트가 refund와 동일한 형태의 리스트 렌더링을 사용한다면 "orders" 키로 내려주는 게 가장 무난
     return {
         "cs": {
             "message": "확인하실 주문내역을 선택해주세요.",
             "orders": ui_delivers,
             "category": "배송",
             "list_type": "delivery",
-            "allow_evidence": False,           # ✅ 이 한 줄로 프론트에서 증빙 감춤
+            "allow_evidence": False,           
         },
         "meta": {"next_step": "await_order_selection"}
     }

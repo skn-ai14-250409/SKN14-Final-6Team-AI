@@ -1,34 +1,16 @@
 from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel, EmailStr
 from typing import Optional
-import mysql.connector
+from mysql.connector import Error
 from datetime import datetime
 import logging
+from utils.db import get_db_connection 
 
-# 로깅 설정
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# 라우터 생성
 router = APIRouter(prefix="/api/profile", tags=["profile"])
 
-# 데이터베이스 연결 함수
-def get_db_connection():
-    try:
-        connection = mysql.connector.connect(
-            host='localhost',
-            database='qook_chatbot',
-            user='qook_user',
-            password='qook_pass',
-            charset='utf8mb4',
-            collation='utf8mb4_unicode_ci'
-        )
-        return connection
-    except mysql.connector.Error as e:
-        logger.error(f"데이터베이스 연결 실패: {e}")
-        raise HTTPException(status_code=500, detail="데이터베이스 연결에 실패했습니다.")
-
-# Pydantic 모델 정의
 class UserProfileUpdate(BaseModel):
     name: str
     email: EmailStr
@@ -48,7 +30,6 @@ class UserProfileResponse(BaseModel):
     user: Optional[dict] = None
     message: Optional[str] = None
 
-# 현재 사용자 ID 가져오기: 쿠키 기반(JWT > user_id 순)
 def get_current_user_id(request: Request) -> str:
     """쿠키의 access_token(JWT)을 검증하여 사용자 ID를 추출합니다.
     유효한 토큰이 없으면 'anonymous'를 반환합니다.
@@ -77,9 +58,11 @@ async def get_user_profile(request: Request):
     
     try:
         connection = get_db_connection()
+        if not connection:
+            logger.error("DB 연결 실패") 
+            raise HTTPException(status_code=500, detail="데이터베이스 연결에 실패했습니다.")
         cursor = connection.cursor(dictionary=True)
-        
-        # 사용자 정보 조회 (JOIN을 사용해 한 번에 가져오기)
+
         query = """
         SELECT 
             u.user_id, u.name, u.birth_date, u.email, u.phone_num, u.address, u.post_num,
@@ -97,8 +80,7 @@ async def get_user_profile(request: Request):
                 success=False,
                 message="사용자 정보를 찾을 수 없습니다."
             )
-        
-        # 날짜 형식 변환
+
         if user_data.get('birth_date'):
             user_data['birth_date'] = str(user_data['birth_date'])
         
@@ -107,7 +89,7 @@ async def get_user_profile(request: Request):
             user=user_data
         )
         
-    except mysql.connector.Error as e:
+    except Error as e:
         logger.error(f"데이터베이스 오류: {e}")
         raise HTTPException(status_code=500, detail="데이터베이스 오류가 발생했습니다.")
     except Exception as e:
@@ -129,12 +111,13 @@ async def update_user_profile(profile_data: UserProfileUpdate, request: Request)
     
     try:
         connection = get_db_connection()
+        if not connection:
+            logger.error("DB 연결 실패") 
+            raise HTTPException(status_code=500, detail="데이터베이스 연결에 실패했습니다.")
         cursor = connection.cursor()
-        
-        # 트랜잭션 시작
+
         connection.start_transaction()
-        
-        # userinfo_tbl 업데이트
+
         userinfo_query = """
         UPDATE userinfo_tbl 
         SET name = %s, email = %s, phone_num = %s, birth_date = %s, address = %s, post_num = %s
@@ -152,14 +135,13 @@ async def update_user_profile(profile_data: UserProfileUpdate, request: Request)
         )
         
         cursor.execute(userinfo_query, userinfo_values)
-        
-        # user_detail_tbl 확인 및 업데이트/삽입
+
         check_detail_query = "SELECT user_id FROM user_detail_tbl WHERE user_id = %s"
         cursor.execute(check_detail_query, (user_id,))
         detail_exists = cursor.fetchone()
         
         if detail_exists:
-            # 기존 레코드 업데이트 (멤버십 제외)
+
             detail_update_query = """
             UPDATE user_detail_tbl 
             SET gender = %s, age = %s, allergy = %s, vegan = %s, 
@@ -179,7 +161,7 @@ async def update_user_profile(profile_data: UserProfileUpdate, request: Request)
             
             cursor.execute(detail_update_query, detail_values)
         else:
-            # 새 레코드 삽입 (멤버십 제외, 기본값 사용)
+
             detail_insert_query = """
             INSERT INTO user_detail_tbl 
             (user_id, gender, age, allergy, vegan, house_hold, unfavorite, membership)
@@ -197,8 +179,7 @@ async def update_user_profile(profile_data: UserProfileUpdate, request: Request)
             )
             
             cursor.execute(detail_insert_query, detail_values)
-        
-        # 트랜잭션 커밋
+
         connection.commit()
         
         return UserProfileResponse(
@@ -206,7 +187,7 @@ async def update_user_profile(profile_data: UserProfileUpdate, request: Request)
             message="개인정보가 성공적으로 저장되었습니다."
         )
         
-    except mysql.connector.Error as e:
+    except Error as e:
         if connection:
             connection.rollback()
         logger.error(f"데이터베이스 오류: {e}")
@@ -230,6 +211,9 @@ async def get_membership_options():
     
     try:
         connection = get_db_connection()
+        if not connection:
+            logger.error("DB 연결 실패")
+            raise HTTPException(status_code=500, detail="데이터베이스 연결에 실패했습니다.")
         cursor = connection.cursor(dictionary=True)
         
         query = """
@@ -246,7 +230,7 @@ async def get_membership_options():
             "memberships": memberships
         }
         
-    except mysql.connector.Error as e:
+    except Error as e:
         logger.error(f"데이터베이스 오류: {e}")
         raise HTTPException(status_code=500, detail="멤버십 정보를 불러올 수 없습니다.")
     finally:

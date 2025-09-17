@@ -39,19 +39,64 @@ def enhance_query(state: ChatState) -> Dict[str, Any]:
         "user_id": state.user_id,
         "original_query": state.query
     })
-    
+
+    # hjs 수정 - 최근 대화 맥락을 추출하여 멀티턴 보강에 활용합니다. # 멀티턴 기능
+    recent_history_text = ""
+    if state.conversation_history:
+        history_slice = state.conversation_history[-6:]
+        formatted_history = []
+        for message in history_slice:
+            role_label = "사용자" if message.get("role") == "user" else "봇"
+            content = message.get("content", "")
+            formatted_history.append(f"{role_label}: {content}")
+        recent_history_text = "\n".join(formatted_history)
+
+    search_intent = None
+    try:
+        # hjs 수정 - 레시피 재검색 여부를 파악하여 슬롯 보강에 활용합니다. # 멀티턴 기능
+        search_intent = analyze_search_intent_with_history(state, state.query)
+    except Exception as analyze_error:
+        logger.warning(f"히스토리 기반 검색 의도 분석 실패: {analyze_error}")
+        search_intent = None
+
+    setattr(enhance_query, "_current_state", state)  # hjs 수정 # 멀티턴 기능
+    setattr(enhance_query, "_history_text", recent_history_text)  # hjs 수정 # 멀티턴 기능
+    setattr(enhance_query, "_search_intent", search_intent or {})  # hjs 수정 # 멀티턴 기능
+
     try:
         result = _llm_enhance_all(state.query)
+        if result is None:
+            raise ValueError("LLM query enhancement returned no result")  # hjs 수정 # 멀티턴 기능
         logger.info(f"LLM 전체 호출 결과: {result}")
-            
+
+        if search_intent and search_intent.get("is_alternative_search"):
+            try:
+                slots = result.setdefault("slots", {})
+                slots.setdefault("search_context", {})
+                slots["search_context"].update({  # hjs 수정 # 멀티턴 기능
+                    "type": "alternative",
+                    "previous_dish": search_intent.get("previous_dish"),
+                    "intent_scope": search_intent.get("intent_scope"),
+                    "similarity_level": search_intent.get("similarity_level"),
+                    "search_strategy": search_intent.get("search_strategy")
+                })
+            except Exception as context_error:
+                logger.warning(f"검색 맥락 정보 추가 실패: {context_error}")
+
         filters = result.get("filters") or result.get("search_filters")
         if filters:
-            result["meta"] = {"search_filters": filters, "enhance_path": "one_call"}
+            meta = result.setdefault("meta", {})
+            meta.update({"search_filters": filters, "enhance_path": "one_call"})  # hjs 수정 # 멀티턴 기능
+
+        if recent_history_text:
+            meta = result.setdefault("meta", {})
+            meta.setdefault("conversation_history_used", True)  # hjs 수정 # 멀티턴 기능
 
         logger.info("쿼리 보강(통합 LLM 호출) 완료", extra={
             "has_filters": bool(filters),
             "slots_extracted": len(result.get("slots", {})),
-            "keywords_generated": len(result.get("rewrite", {}).get("keywords", []))
+            "keywords_generated": len(result.get("rewrite", {}).get("keywords", [])),
+            "used_history": bool(recent_history_text)
         })
         return result
 
@@ -69,6 +114,11 @@ def enhance_query(state: ChatState) -> Dict[str, Any]:
             },
             "slots": {"quantity": 1}
         }
+    finally:
+        # hjs 수정 - 함수 호출 후 히스토리 컨텍스트 초기화합니다. # 멀티턴 기능
+        setattr(enhance_query, "_current_state", None)
+        setattr(enhance_query, "_history_text", "")
+        setattr(enhance_query, "_search_intent", {})
 
 def _enhance_query(state: ChatState) -> Dict[str, Any]:
     """
@@ -278,6 +328,10 @@ def _llm_enhance_with_history(query: str, search_intent: Dict[str, Any]) -> Opti
 
 def _llm_enhance_all(query: str) -> Optional[Dict[str, Any]]:
     """전체 쿼리 보강 (재작성 + 슬롯 + 키워드)"""
+    state_ctx = getattr(enhance_query, "_current_state", None)  # hjs 수정 # 멀티턴 기능
+    history_text = getattr(enhance_query, "_history_text", "")  # hjs 수정 # 멀티턴 기능
+    intent_ctx = getattr(enhance_query, "_search_intent", {})  # hjs 수정 # 멀티턴 기능
+
     system_prompt = """당신은 신선식품 쇼핑몰의 전문 쿼리 분석가입니다.
 사용자의 입력을 분석하여, 이어지는 다양한 작업(상품 검색, 레시피 검색, 장바구니 관리 등)에 필요한 정보를 구조화된 JSON 형식으로 추출해야 합니다.
 
@@ -385,12 +439,30 @@ def _llm_enhance_all(query: str) -> Optional[Dict[str, Any]]:
 - 출력: {{"rewrite": {{"text": "결제 진행", "keywords": ["결제", "주문"], "confidence": 0.9, "changes": ["'이대로', '할래' 제거", "의도 표준화"]}}, "slots": {}}}}
 
 위 규칙과 예시를 정확히 따라 JSON 형식으로만 응답하세요."""
+    if history_text:
+        system_prompt += "\n최근 대화 히스토리가 함께 제공될 수 있으며, 이를 활용해 후속 의도를 정확히 파악하세요."  # hjs 수정 # 멀티턴 기능
+
+    history_section = ""
+    if history_text:
+        history_section = f"[이전 대화]\n{history_text}\n\n"  # hjs 수정 # 멀티턴 기능
+
+    intent_hint = ""
+    if intent_ctx and intent_ctx.get("is_alternative_search"):
+        intent_hint = (
+            "[검색 의도]\n"
+            f"재검색 여부: {intent_ctx.get('is_alternative_search')}\n"
+            f"의도 범위: {intent_ctx.get('intent_scope')}\n"
+            f"이전 검색 음식: {intent_ctx.get('previous_dish')}\n"
+            f"검색 전략: {intent_ctx.get('search_strategy')}\n\n"
+        )  # hjs 수정 # 멀티턴 기능
+
+    user_message = f"{history_section}{intent_hint}[현재 입력]\n{query}"  # hjs 수정 # 멀티턴 기능
     try:
         response = openai_client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"입력: {query}"}
+                {"role": "user", "content": user_message}
             ],
             temperature=0.1,
             response_format={"type": "json_object"},
@@ -412,6 +484,14 @@ def _llm_enhance_all(query: str) -> Optional[Dict[str, Any]]:
             result["slots"] = {k: v for k, v in result["slots"].items() if v is not None}
             if not result["slots"]:
                 result["slots"] = {"quantity": 1}
+        if history_text:
+            meta = result.setdefault("meta", {})
+            meta.setdefault("conversation_history_used", True)  # hjs 수정 # 멀티턴 기능
+        if intent_ctx and intent_ctx.get("is_alternative_search"):
+            meta = result.setdefault("meta", {})
+            meta.setdefault("search_intent", intent_ctx)  # hjs 수정 # 멀티턴 기능
+        if state_ctx and not result.get("rewrite", {}).get("text"):
+            result.setdefault("rewrite", {}).setdefault("text", query)  # hjs 수정 # 멀티턴 기능
         return result
     
     except Exception as e:

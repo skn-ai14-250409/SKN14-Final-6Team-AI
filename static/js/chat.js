@@ -126,42 +126,6 @@ class ChatBot {
     });
   }
 
-  sortProducts(products, sortBy) {
-    if (!products || products.length === 0) return products;
-    
-    const sortedProducts = [...products];
-    
-    switch (sortBy) {
-      case 'price_low':
-        return sortedProducts.sort((a, b) => (a.price || 0) - (b.price || 0));
-      case 'price_high':
-        return sortedProducts.sort((a, b) => (b.price || 0) - (a.price || 0));
-      case 'name':
-        return sortedProducts.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ko'));
-      case 'popular':
-      default:
-        return sortedProducts;
-    }
-  }
-
-  sortIngredients(ingredients, sortBy) {
-    if (!ingredients || ingredients.length === 0) return ingredients;
-    
-    const sortedIngredients = [...ingredients];
-    
-    switch (sortBy) {
-      case 'price_low':
-        return sortedIngredients.sort((a, b) => (a.price || 0) - (b.price || 0));
-      case 'price_high':
-        return sortedIngredients.sort((a, b) => (b.price || 0) - (a.price || 0));
-      case 'name':
-        return sortedIngredients.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ko'));
-      case 'popular':
-      default:
-        return sortedIngredients;
-    }
-  }
-
   handleProductSortChange(newSortBy) {
     if (window.ChatProducts) return ChatProducts.handleProductSortChange(this, newSortBy);
   }
@@ -170,125 +134,6 @@ class ChatBot {
     this.ingredientSortBy = newSortBy;
     this.ingredientPage = 0;
     this._renderIngredientsPage();
-  }
-
-  createSortSelectBox(currentSortBy, onChangeCallback, elementId) {
-    const sortOptions = [
-      { value: 'popular', label: '인기순' },
-      { value: 'price_low', label: '가격 낮은순' },
-      { value: 'price_high', label: '가격 높은순' },
-    ];
-
-    const selectHtml = `
-      <div class="flex items-center justify-between mb-3">
-        <span class="text-sm font-medium text-gray-700">정렬 기준</span>
-        <select id="${elementId}" class="sort-select text-sm border border-gray-300 rounded px-2 py-1 bg-white focus:border-green-500 focus:outline-none">
-          ${sortOptions.map(option => 
-            `<option value="${option.value}" ${currentSortBy === option.value ? 'selected' : ''}>${option.label}</option>`
-          ).join('')}
-        </select>
-      </div>`;
-
-    return { html: selectHtml, bindEvent: (container) => {
-      const selectElement = container.querySelector(`#${elementId}`);
-      if (selectElement) {
-        selectElement.addEventListener('change', (e) => {
-          onChangeCallback(e.target.value);
-        });
-      }
-    }};
-  }
-
-  _renderPaginatedList(config) {
-    const { 
-      listElement, 
-      dataArray, 
-      currentPage, 
-      itemsPerPage, 
-      renderItemCallback, 
-      onPageChange,
-      bulkActionConfig = null,
-      sortConfig = null
-    } = config;
-
-    listElement.innerHTML = '';
-
-    if (sortConfig) {
-      const sortContainer = document.createElement('div');
-      sortContainer.className = 'sort-container mb-0 p-1 bg-gray-50 rounded-lg';
-      sortContainer.innerHTML = sortConfig.html;
-      listElement.appendChild(sortContainer);
-      
-      if (sortConfig.bindEvent) {
-        sortConfig.bindEvent(sortContainer);
-      }
-    }
-
-    const totalItems = dataArray.length;
-    const totalPages = Math.ceil(totalItems / itemsPerPage);
-
-    let validPage = currentPage;
-    if (validPage < 0) validPage = 0;
-    if (validPage >= totalPages) validPage = totalPages - 1;
-    
-    const start = validPage * itemsPerPage;
-    const pageItems = dataArray.slice(start, start + itemsPerPage);
-
-    pageItems.forEach((item, index) => {
-      const globalIndex = start + index;
-      const itemElement = renderItemCallback(item, globalIndex);
-      listElement.appendChild(itemElement);
-    });
-
-    if (totalPages > 1) {
-      const paginationDiv = document.createElement('div');
-      paginationDiv.className = 'flex items-center justify-center space-x-2 mt-3';
-
-      const prevBtn = document.createElement('button');
-      prevBtn.innerHTML = '<i class="fas fa-chevron-left"></i>';
-      prevBtn.className = 'pagination-btn px-2 py-1 text-xs border rounded hover:bg-gray-100 disabled:opacity-50';
-      if (validPage === 0) {
-        prevBtn.disabled = true;
-      }
-      prevBtn.addEventListener('click', () => {
-        onPageChange(validPage - 1);
-      });
-
-      const pageInfo = document.createElement('span');
-      pageInfo.className = 'text-xs font-medium text-gray-600 px-2';
-      pageInfo.textContent = `${validPage + 1} / ${totalPages}`;
-
-      const nextBtn = document.createElement('button');
-      nextBtn.innerHTML = '<i class="fas fa-chevron-right"></i>';
-      nextBtn.className = 'pagination-btn px-2 py-1 text-xs border rounded hover:bg-gray-100 disabled:opacity-50';
-      if (validPage === totalPages - 1) {
-        nextBtn.disabled = true;
-      }
-      nextBtn.addEventListener('click', () => {
-        onPageChange(validPage + 1);
-      });
-
-      paginationDiv.appendChild(prevBtn);
-      paginationDiv.appendChild(pageInfo);
-      paginationDiv.appendChild(nextBtn);
-      listElement.appendChild(paginationDiv);
-    }
-
-    if (bulkActionConfig) {
-      const bulkContainer = document.createElement('div');
-      bulkContainer.className = 'mt-4 p-3 bg-gray-50 rounded-lg';
-      bulkContainer.innerHTML = bulkActionConfig.html;
-      listElement.appendChild(bulkContainer);
-
-      if (bulkActionConfig.events) {
-        bulkActionConfig.events.forEach(event => {
-          const element = bulkContainer.querySelector(event.selector);
-          if (element) {
-            element.addEventListener(event.type, event.handler);
-          }
-        });
-      }
-    }
   }
 
   _renderProductPage() {
@@ -639,7 +484,15 @@ class ChatBot {
     }).then(r=>r.json()).then((data)=>{
       if (data && data.code==='already_removed') this.addMessage('이미 제거된 레시피 입니다','bot');
     }).catch(e=>console.error('removeFavoriteRecipe error', e)).finally(()=>{
-      const list=this.loadFavoriteRecipes().filter(x=>x.url!==item.url && x.title!==item.title);
+      const targetUrl = ((item.url || item.recipe_url || '')+'').trim();  // hjs 수정: 즐겨찾기 항목 키 정규화
+      const targetTitle = ((item.title || item.recipe_title || '')+'').trim();
+      const list=this.loadFavoriteRecipes().filter(x=>{
+        const entryUrl = ((x && (x.url || x.recipe_url)) || '').trim();
+        const entryTitle = ((x && (x.title || x.recipe_title)) || '').trim();
+        const urlMatches = targetUrl && entryUrl && entryUrl === targetUrl;
+        const titleMatches = targetTitle && entryTitle && entryTitle === targetTitle;
+        return !(urlMatches || titleMatches);
+      });
       localStorage.setItem(this.getFavoritesKey(), JSON.stringify(list));
       try { this.renderFavorites(); } catch(_) {}
       try { if (item && (item.title||item.recipe_title)) this.addMessage(`"${item.title||item.recipe_title}"을(를) 즐겨찾기에서 제거했습니다.`, 'bot'); } catch(_) {}
@@ -709,56 +562,14 @@ renderEvidenceResultBubble(data, ctx){
 }
 
   updateCart(cart, saveState = true){
+    if (window.ChatCart && typeof ChatCart.updateCart === 'function') {
+      // hjs 수정: 장바구니 UI 처리를 모듈에 위임하여 ChatBot을 경량화했습니다. # 멀티턴 기능
+      return ChatCart.updateCart(this, cart, saveState);
+    }
     if (saveState && cart) {
-      if (cart.items) { cart.items.forEach(item=>{ item.qty=parseInt(item.qty,10); item.unit_price=parseFloat(item.unit_price); }); }
-      this.cartState=JSON.parse(JSON.stringify(cart));
+      if (cart.items) { cart.items.forEach(item => { item.qty = parseInt(item.qty, 10); item.unit_price = parseFloat(item.unit_price); }); }
+      this.cartState = JSON.parse(JSON.stringify(cart));
     }
-    const currentCart=this.cartState;
-    const section=document.getElementById('cartSection');
-    const list=document.getElementById('cartItems');
-    const countBadge=document.getElementById('cartCount');
-    const subtotalEl=document.getElementById('subtotalAmount');
-    const discountEl=document.getElementById('discountAmount');
-    const totalEl=document.getElementById('totalAmount');
-    const shippingFeeEl=document.getElementById('shippingFee');
-    const checkoutButton=document.getElementById('checkoutButton');
-
-    if (!currentCart||!currentCart.items||currentCart.items.length===0){
-      section.classList.remove('hidden'); list.innerHTML=`<div class="cart-empty p-4 text-center text-gray-500">장바구니가 비어있습니다.</div>`;
-      countBadge.textContent='0'; subtotalEl.textContent='0원'; discountEl.textContent='- 0원'; totalEl.textContent='0원'; checkoutButton.classList.add('hidden'); return;
-    }
-
-    section.classList.remove('hidden'); countBadge.textContent=currentCart.items.length; list.innerHTML='';
-    currentCart.items.forEach(item=>{
-      const itemDiv=document.createElement('div');
-      itemDiv.className='cart-item flex items-center justify-between bg-white rounded p-2 text-sm';
-      itemDiv.innerHTML=`
-        <div class="flex items-center flex-1 mr-2">
-          <input type="checkbox" class="cart-select mr-2" data-product-name="${this.escapeHtml(item.name)}" />
-          <div>
-            <span class="font-medium">${this.escapeHtml(item.name)}</span>
-            <div class="text-xs text-gray-500">${this.formatPrice(item.unit_price)}원</div>
-          </div>
-        </div>
-        <div class="quantity-controls flex items-center">
-          <button class="quantity-btn minus-btn" data-product-name="${this.escapeHtml(item.name)}">-</button>
-          <span class="quantity-display">${item.qty}</span>
-          <button class="quantity-btn plus-btn" data-product-name="${this.escapeHtml(item.name)}">+</button>
-        </div>
-        <button class="remove-item ml-2" data-product-name="${this.escapeHtml(item.name)}">
-          <i class="fas fa-times"></i>
-        </button>`;
-      list.appendChild(itemDiv);
-    });
-
-    subtotalEl.textContent=this.formatPrice(currentCart.subtotal)+'원';
-    const productDiscountAmount=(currentCart.discounts||[]).filter(d=>d.type!=='free_shipping').reduce((acc,d)=>acc+(d.amount||0),0);
-    discountEl.textContent=`- ${this.formatPrice(productDiscountAmount)}원`;
-    const hasFreeShip = (currentCart.discounts||[]).some(d=>d.type==='free_shipping');
-    const displayShipping = hasFreeShip ? 0 : (currentCart.shipping_fee||0);
-    if (shippingFeeEl) shippingFeeEl.textContent=this.formatPrice(displayShipping)+'원';
-    totalEl.textContent=this.formatPrice(currentCart.total)+'원';
-    checkoutButton.classList.remove('hidden');
   }
 
   updateOrderInfo(order){
@@ -839,7 +650,6 @@ renderEvidenceResultBubble(data, ctx){
     const discountAmount=(this.cartState.discounts||[]).reduce((acc,d)=>acc+d.amount,0);
     if (discountAmount>0) cartMessage+=`💸 할인금액: -${this.formatPrice(discountAmount)}원\n`;
     cartMessage+=`💳 최종 결제금액: ${this.formatPrice(this.cartState.total)}원`;
-    this.addMessage(cartMessage,'bot');
   }
 
 

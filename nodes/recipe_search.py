@@ -13,7 +13,7 @@ import requests
 import re
 import json
 from typing import Dict, Any, List, Optional
-import mysql.connector
+from concurrent.futures import ThreadPoolExecutor, as_completed  # hjs 수정
 from mysql.connector import Error
 from bs4 import BeautifulSoup
 
@@ -31,6 +31,8 @@ from policy import (
 )
 
 from utils.chat_history import save_recipe_search_result, generate_alternative_search_strategy
+from nodes.product_search import get_search_engine  # hjs 수정 # 멀티턴 기능
+from utils.db import get_db_connection  # hjs 수정
 
 logger = logging.getLogger("RECIPE_SEARCH")
 
@@ -45,14 +47,6 @@ try:
 except ImportError:
     openai_client = None
     logger.warning("OpenAI package not available. LLM-based features will be disabled.")
-
-DB_CONFIG = {
-    'host': os.getenv('DB_HOST', '127.0.0.1'),
-    'user': os.getenv('DB_USER', 'qook_user'),
-    'password': os.getenv('DB_PASS', 'qook_pass'),
-    'database': os.getenv('DB_NAME', 'qook_chatbot'),
-    'port': int(os.getenv('DB_PORT', 3306))
-}
 
 # --- 메인 라우팅 함수 ---
 # def recipe_search(state: ChatState) -> Dict[str, Any]:
@@ -364,14 +358,14 @@ def _handle_selected_recipe(query: str, state: ChatState = None) -> Dict[str, An
     all_search_terms = list(set(extracted_ingredients + additional_keywords))
     logger.info(f"DB 검색 키워드: {all_search_terms}")
     
-    matched_products = _get_product_details_from_db(all_search_terms, user_preferences)
+    matched_products = _get_product_details_from_db(all_search_terms, user_preferences, state)  # hjs 수정 # 멀티턴 기능
     
     formatted_recipe_message = _format_recipe_content(structured_content, user_preferences)
     
     logger.info(f"레시피 처리 완료: 재료 {len(all_search_terms)}개, 추천 상품 {len(matched_products)}개")
-    print("recipe_search.py matched_products:",matched_products)
-    print("recipe_search.py formatted_recipe_message:",formatted_recipe_message)
-    print("recipe_search.py structured_content:",structured_content)
+    # print("recipe_search.py matched_products:",matched_products)
+    # print("recipe_search.py formatted_recipe_message:",formatted_recipe_message)
+    # print("recipe_search.py structured_content:",structured_content)
     return {
         "recipe": {
             "results": [],
@@ -383,18 +377,134 @@ def _handle_selected_recipe(query: str, state: ChatState = None) -> Dict[str, An
         }
     }
 
-def get_db_connection():
-    try:
-        return mysql.connector.connect(**DB_CONFIG)
-    except Error as e:
-        logger.error(f"DB 연결 실패: {e}")
-        return None
-
-def _get_product_details_from_db(ingredient_names: List[str], user_preferences: Dict[str, Any] = None) -> List[Dict[str, Any]]:
-    """DB에서 재료명을 포함(LIKE)하는 상품 상세 정보를 조회합니다."""
+def _get_product_details_from_db(
+    ingredient_names: List[str],
+    user_preferences: Dict[str, Any] = None,
+    state: Optional[ChatState] = None
+) -> List[Dict[str, Any]]:
+    """상품 검색 노드를 활용해 레시피 재료에 맞는 상품을 조회합니다."""  # hjs 수정 # 멀티턴 기능
     if not ingredient_names:
         return []
 
+    search_engine = get_search_engine()
+
+    aggregated_products: List[Dict[str, Any]] = []
+    seen_products: set = set()
+
+    # hjs 수정: 중복 제거 및 병렬 검색 준비
+    normalized_terms: List[str] = []
+    seen_terms = set()
+    for raw_term in ingredient_names:
+        term = (raw_term or "").strip()
+        if term and term not in seen_terms:
+            seen_terms.add(term)
+            normalized_terms.append(term)
+
+    if not normalized_terms:
+        return []
+
+    base_user_id = state.user_id if state and state.user_id else 'anonymous'
+    base_session_id = state.session_id if state else None
+    history_tail = state.conversation_history[-6:] if state and state.conversation_history else []
+
+    CHUNK_SIZE = 3  # 한 번의 검색에 사용할 재료 수 (hjs 수정)
+    MAX_WORKERS = min(4, max(1, len(normalized_terms)))
+
+    def _chunk_terms(seq: List[str], size: int) -> List[List[str]]:
+        return [seq[i:i + size] for i in range(0, len(seq), size)]
+
+    def _run_chunk(chunk_terms: List[str]) -> List[Dict[str, Any]]:
+        query = " ".join(chunk_terms)
+        temp_state = ChatState(user_id=base_user_id, session_id=base_session_id)
+        temp_state.query = query
+        temp_state.route = {"target": "product_search"}
+        temp_state.rewrite = {"text": query, "keywords": chunk_terms}
+        temp_state.slots = {"product": chunk_terms[0], "item": chunk_terms[0]}
+        temp_state.search = {}
+        temp_state.conversation_history = history_tail
+
+        try:
+            search_result = search_engine.search_products(temp_state)
+        except Exception as err:
+            logger.warning(f"레시피 연동 상품 검색 실패 (terms={chunk_terms}): {err}")
+            return []
+
+        if not search_result.get("success") or not search_result.get("candidates"):
+            return []
+
+        return search_result["candidates"]
+
+    chunks = _chunk_terms(normalized_terms, CHUNK_SIZE)
+
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        future_to_chunk = {executor.submit(_run_chunk, chunk): chunk for chunk in chunks}
+        for future in as_completed(future_to_chunk):
+            try:
+                candidates = future.result()
+            except Exception as err:
+                logger.warning(f"병렬 상품 검색 중 오류 발생: {err}")
+                continue
+
+            for candidate in candidates:
+                name = candidate.get("name") or candidate.get("sku") or ""
+                if not name or name in seen_products:
+                    continue
+                if not _passes_user_preferences(name, user_preferences):
+                    continue
+
+                aggregated_products.append({
+                    'name': name,
+                    'price': float(candidate.get('price') or 0.0),
+                    'origin': candidate.get('origin') or '정보 없음',
+                    'organic': bool(candidate.get('organic')) if candidate.get('organic') is not None else False
+                })
+                seen_products.add(name)
+
+                if len(aggregated_products) >= 15:
+                    break
+
+            if len(aggregated_products) >= 15:
+                break
+
+    if aggregated_products:
+        logger.info(f"상품 검색 엔진 기반 추천 {len(aggregated_products)}개 확보")  # hjs 수정 # 멀티턴 기능
+        return aggregated_products
+
+    logger.info("상품 검색 엔진 결과 없음, 기존 DB 조회 폴백 수행")  # hjs 수정 # 멀티턴 기능
+    return _legacy_product_details_lookup(ingredient_names, user_preferences)
+
+
+def _passes_user_preferences(product_name: str, user_preferences: Optional[Dict[str, Any]]) -> bool:
+    """사용자 선호/제약 조건을 만족하는지 확인합니다."""  # hjs 수정 # 멀티턴 기능
+    if not user_preferences:
+        return True
+
+    lowered = product_name.lower()
+
+    if user_preferences.get("vegan", False):
+        vegan_exclusions = [
+            "고기", "돼지", "소고기", "닭", "생선", "새우", "오징어",
+            "계란", "달걀", "우유", "치즈", "버터", "요구르트", "베이컨",
+            "햄", "소시지", "참치", "연어", "멸치", "젓갈"
+        ]
+        if any(exclusion in lowered for exclusion in vegan_exclusions):
+            return False
+
+    if user_preferences.get("allergy"):
+        allergy_items = [item.strip().lower() for item in user_preferences["allergy"].split(",") if item.strip()]
+        if any(allergen and allergen in lowered for allergen in allergy_items):
+            return False
+
+    if user_preferences.get("unfavorite"):
+        unfavorite_items = [item.strip().lower() for item in user_preferences["unfavorite"].split(",") if item.strip()]
+        if any(unfavorite and unfavorite in lowered for unfavorite in unfavorite_items):
+            return False
+
+    return True
+
+
+def _legacy_product_details_lookup(ingredient_names: List[str], user_preferences: Dict[str, Any] = None) -> List[Dict[str, Any]]:
+    """기존 SQL 기반 상품 조회 (폴백용)."""  # hjs 수정 # 멀티턴 기능
     conn = get_db_connection()
     if not conn:
         return []
@@ -402,45 +512,45 @@ def _get_product_details_from_db(ingredient_names: List[str], user_preferences: 
     try:
         with conn.cursor(dictionary=True) as cursor:
             exclusion_conditions = []
-            
+
             if user_preferences:
                 if user_preferences.get("vegan", False):
                     vegan_exclusions = [
-                        "고기", "돼지", "소고기", "닭", "생선", "새우", "오징어", 
-                        "계란", "달걀", "우유", "치즈", "버터", "요구르트", "베이컨", 
+                        "고기", "돼지", "소고기", "닭", "생선", "새우", "오징어",
+                        "계란", "달걀", "우유", "치즈", "버터", "요구르트", "베이컨",
                         "햄", "소시지", "참치", "연어", "멸치", "젓갈"
                     ]
                     for exclusion in vegan_exclusions:
                         exclusion_conditions.append(f"p.product NOT LIKE '%{exclusion}%'")
                     logger.info("비건 사용자 - 동물성 제품 제외 조건 추가")
-                
+
                 if user_preferences.get("allergy"):
                     allergy_items = [item.strip() for item in user_preferences["allergy"].split(",")]
                     for allergy in allergy_items:
                         exclusion_conditions.append(f"p.product NOT LIKE '%{allergy}%'")
                     logger.info(f"알러지 제외 조건 추가: {allergy_items}")
-                
+
                 if user_preferences.get("unfavorite"):
                     unfavorite_items = [item.strip() for item in user_preferences["unfavorite"].split(",")]
                     for unfavorite in unfavorite_items:
                         exclusion_conditions.append(f"p.product NOT LIKE '%{unfavorite}%'")
                     logger.info(f"선호도 제외 조건 추가: {unfavorite_items}")
-            
+
             where_clauses = ' OR '.join(['p.product LIKE %s'] * len(ingredient_names))
-            
+
             exclusion_clause = ""
             if exclusion_conditions:
                 exclusion_clause = " AND " + " AND ".join(exclusion_conditions)
-            
+
             sql = f"""
                 SELECT p.product as name, p.unit_price as price, p.origin, p.organic
                 FROM product_tbl p
                 WHERE ({where_clauses}){exclusion_clause}
                 LIMIT 15
             """
-            
+
             params = [f"%{name}%" for name in ingredient_names]
-            
+
             cursor.execute(sql, params)
             products = cursor.fetchall()
 
@@ -452,10 +562,10 @@ def _get_product_details_from_db(ingredient_names: List[str], user_preferences: 
                     'origin': p.get('origin', '정보 없음'),
                     'organic': True if p.get('organic') == 'Y' else False
                 })
-            
-            logger.info(f"개인맞춤화 상품 필터링 완료: {len(formatted_products)}개 상품")
+
+            logger.info(f"폴백 DB 조회 결과: {len(formatted_products)}개 상품")
             return formatted_products
-            
+
     except Error as e:
         logger.error(f"상품 상세 정보 조회 실패: {e}")
         return []

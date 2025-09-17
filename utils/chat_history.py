@@ -1156,3 +1156,102 @@ def _generate_context_summary(most_recent: Dict, related_searches: List, current
         return f"최근 '{recent_dish}' 검색 후 연관 검색 {len(related_searches)}개 발견"
     else:
         return f"최근 '{recent_dish}' 검색, 현재 질문과 연관성 낮음"
+
+
+# hjs 수정: 도메인 전반에서 재사용 가능한 히스토리 헬퍼 추가 # 멀티턴 기능
+def get_recent_messages_by_intents(state: ChatState, intents: List[str], limit: int = 5) -> List[Dict[str, Any]]:
+    """지정된 intent 목록에 해당하는 최근 메시지 추출"""
+    history = getattr(state, "conversation_history", [])
+    if not history:
+        return []
+
+    collected: List[Dict[str, Any]] = []
+    for message in reversed(history):
+        if message.get("intent") in intents:
+            collected.append(message)
+            if len(collected) >= limit:
+                break
+
+    return list(reversed(collected))
+
+
+def summarize_product_search_with_history(state: ChatState, current_query: str, limit: int = 3) -> Dict[str, Any]:
+    """상품 검색 멀티턴 컨텍스트 요약"""
+    recent_messages = get_recent_messages_by_intents(state, ["product_search", "product_recommendation"], limit)
+    recent_queries = [msg.get("content", "") for msg in recent_messages]
+
+    last_slots = {}
+    recent_candidates: List[Dict[str, Any]] = []  # hjs 수정 # 멀티턴 기능
+    for msg in reversed(recent_messages):
+        slots = msg.get("slots") or {}
+        if slots and not last_slots:
+            last_slots = slots
+        search_payload = msg.get("search") or {}  # hjs 수정 # 멀티턴 기능
+        if search_payload.get("candidates") and not recent_candidates:
+            recent_candidates = search_payload.get("candidates")
+
+    return {
+        "has_previous_search": bool(recent_messages),
+        "recent_queries": recent_queries,
+        "last_slots": last_slots,
+        "recent_candidates": recent_candidates,
+        "current_query": current_query
+    }
+
+
+def summarize_cart_actions_with_history(state: ChatState, limit: int = 5) -> Dict[str, Any]:
+    """장바구니 관련 멀티턴 맥락 요약"""
+    intents = ["cart_add", "cart_remove", "cart_view", "checkout"]
+    recent_actions = get_recent_messages_by_intents(state, intents, limit)
+
+    normalized_actions = []
+    last_cart_snapshot: Dict[str, Any] = {}  # hjs 수정 # 멀티턴 기능
+    for action in recent_actions:
+        normalized_actions.append({
+            "intent": action.get("intent"),
+            "content": action.get("content"),
+            "timestamp": action.get("timestamp"),
+            "slots": action.get("slots", {})
+        })
+
+        if not last_cart_snapshot and action.get("cart"):
+            last_cart_snapshot = action.get("cart")
+        if action.get("meta") and action["meta"].get("added_items"):
+            last_cart_snapshot.setdefault("last_added_items", action["meta"].get("added_items"))  # hjs 수정 # 멀티턴 기능
+
+    last_action = normalized_actions[-1] if normalized_actions else None
+
+    return {
+        "has_cart_activity": bool(normalized_actions),
+        "recent_actions": normalized_actions,
+        "last_action": last_action,
+        "selected_products": last_action.get("slots", {}).get("items") if last_action else [],
+        "last_cart_snapshot": last_cart_snapshot
+    }
+
+
+def summarize_cs_history(state: ChatState, limit: int = 5) -> Dict[str, Any]:
+    """고객센터(배송/환불 등) 대화 맥락 요약"""
+    intents = ["cs_inquiry", "cs_followup", "refund", "delivery"]
+    recent_cs = get_recent_messages_by_intents(state, intents, limit)
+
+    topics = []
+    for msg in recent_cs:
+        topic = msg.get("cs_topic") or msg.get("intent")
+        if topic:
+            topics.append(topic)
+
+    return {
+        "has_cs_history": bool(recent_cs),
+        "recent_topics": topics,
+        "recent_messages": recent_cs
+    }
+
+
+def build_global_context_snapshot(state: ChatState, current_query: str) -> Dict[str, Any]:
+    """각 도메인의 맥락 요약을 통합한 스냅샷 생성"""
+    return {
+        "product": summarize_product_search_with_history(state, current_query),
+        "cart": summarize_cart_actions_with_history(state),
+        "cs": summarize_cs_history(state)
+    }

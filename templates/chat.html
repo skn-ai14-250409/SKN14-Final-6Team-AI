@@ -437,7 +437,6 @@
     <script src="/static/js/chat-mod-products.js"></script>
     <script src="/static/js/chat-mod-recipes.js"></script>
     <script src="/static/js/chat-mod-voice.js"></script>
-    <script src="/static/js/chat-mod-upload.js"></script>
     <script src="/static/js/chat-mod-cs.js"></script>
     <!-- hjs 수정: CS 증빙 전용 모듈 로드 -->
     <script src="/static/js/cs_evidence.js"></script>
@@ -565,8 +564,8 @@
             const selectAll = document.getElementById('cartSelectAll');
             const selectNone = document.getElementById('cartSelectNone');
             const removeSel = document.getElementById('cartRemoveSelected');
-            if (selectAll){ selectAll.addEventListener('click', ()=>{ document.querySelectorAll('.cart-select').forEach(cb=>{ cb.checked = true; }); }); }
-            if (selectNone){ selectNone.addEventListener('click', ()=>{ document.querySelectorAll('.cart-select').forEach(cb=>{ cb.checked = false; }); }); }
+            if (selectAll){ selectAll.addEventListener('click', ()=>{ document.querySelectorAll('.cart-select').forEach(cb=>{ cb.checked = true; }); try { if (window.ChatCart && window._chatbot) ChatCart.recalculateCartTotals(window._chatbot); } catch(_){} }); } // hjs 수정 # 멀티턴 기능
+            if (selectNone){ selectNone.addEventListener('click', ()=>{ document.querySelectorAll('.cart-select').forEach(cb=>{ cb.checked = false; }); try { if (window.ChatCart && window._chatbot) ChatCart.recalculateCartTotals(window._chatbot); } catch(_){} }); } // hjs 수정 # 멀티턴 기능
             if (removeSel){ removeSel.addEventListener('click', ()=>{ try { if (window.ChatCart) ChatCart.handleRemoveSelected(window._chatbot); } catch(_){} }); }
         });
     </script>

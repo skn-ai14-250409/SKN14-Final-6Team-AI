@@ -65,8 +65,7 @@ def determine_cs_target(state: ChatState) -> str:
     if target == 'handoff' or classification == 'handoff':
         logger.info(f"determine_cs_target: route='{target}', class='{classification}' -> next='handoff'")
         return 'handoff'
-    
-    # LLM 분류 결과에 따른 분기 (딕셔너리 매핑)
+
     classification_mapping = {
         'cs_intake': 'cs_intake',
         'faq_policy': 'faq_policy_rag'

@@ -1,4 +1,3 @@
-# create_refund_triggers.py
 import mysql.connector
 
 DB_CONFIG = dict(
@@ -67,7 +66,7 @@ def main():
     conn.autocommit = True
     cur = conn.cursor()
     try:
-        # 한 줄씩! DELIMITER 쓰지 마세요.
+
         cur.execute("DROP TRIGGER IF EXISTS bi_refund_qty_guard")
         cur.execute("DROP TRIGGER IF EXISTS bu_refund_qty_guard")
         cur.execute(BI)
