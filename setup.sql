@@ -289,7 +289,7 @@ END$$;
 
 -- 추가 부분
 -- root 로 로그인 후
-SET GLOBAL log_bin_trust_function_creators = 1;
+-- SET GLOBAL log_bin_trust_function_creators = 1;
 -- 영구화 하고 싶으면:
 -- SET PERSIST log_bin_trust_function_creators = 1;
 
