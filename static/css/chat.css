@@ -207,6 +207,10 @@ body {
     flex-direction: row-reverse;
 }
 
+#vision-quick-btn {
+    background-color: #d9dde4 !important; 
+} 
+
 /* 카드 레이아웃 정렬 보강: 텍스트 영역(파란 박스) + 버튼 영역(빨간 박스) 고정 */
 .product-card, .ingredient-card { 
     display:flex; 
