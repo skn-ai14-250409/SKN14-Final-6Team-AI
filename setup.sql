@@ -294,9 +294,9 @@ END$$;
 -- SET PERSIST log_bin_trust_function_creators = 1;
 
 
-GRANT TRIGGER ON qook_chatbot.* TO 'qook_user'@'localhost';
-GRANT TRIGGER ON qook_chatbot.* TO 'qook_user'@'%';
-FLUSH PRIVILEGES;
+-- GRANT TRIGGER ON qook_chatbot.* TO 'qook_user'@'localhost';
+-- GRANT TRIGGER ON qook_chatbot.* TO 'qook_user'@'%';
+-- FLUSH PRIVILEGES;
 
 SELECT TABLE_NAME, COLUMN_NAME, CHARACTER_SET_NAME, COLLATION_NAME
 FROM INFORMATION_SCHEMA.COLUMNS
