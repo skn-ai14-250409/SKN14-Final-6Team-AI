@@ -10,8 +10,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# 윈도우 줄바꿈(CRLF)로 생기는 "not found^M" 방지
-RUN sed -i 's/\r$//' /app/start.sh && chmod +x /app/start.sh
-
 EXPOSE 8000
 CMD ["uvicorn","app:app","--host","0.0.0.0","--port","8000","--workers","2"]
