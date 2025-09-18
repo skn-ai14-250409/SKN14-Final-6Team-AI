@@ -9,11 +9,25 @@ policy.py — 개인맞춤화 레시피 추천 정책 관리
 
 import logging
 from mysql.connector import Error
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Dict, Any, List, Tuple
 
 from utils.db import get_db_connection
 
 logger = logging.getLogger("PERSONALIZED_POLICY")
+
+VEGAN_POSITIVE_KEYWORDS = ["비건"]
+
+VEGAN_EXCLUSIONS = [
+    "고기", "돼지", "소고기", "닭", "닭고기", "닭가슴살",
+    "생선", "새우", "오징어", "계란", "달걀", "우유", "치즈",
+    "버터", "요구르트", "베이컨", "햄", "소시지", "참치",
+    "연어", "갈치", "조개", "굴", "멸치", "젓갈", "육수"
+]
+
+EXCLUDED_DOMAINS = [
+    "youtube", "instagram", "facebook.",
+    "tiktok.", "blog.naver.", "m.blog.naver"
+]
 
 def get_user_preferences(user_id: str) -> Dict[str, Any]:
     """
@@ -77,13 +91,8 @@ def create_personalized_search_keywords(base_query: str, user_preferences: Dict[
     exclusion_keywords = []
 
     if user_preferences.get("vegan", False):
-        vegan_exclusions = [
-            "고기", "돼지고기", "소고기", "닭고기", "생선", "새우", "오징어", "계란", 
-            "우유", "치즈", "버터", "요구르트", "베이컨", "햄", "소시지", "참치"
-        ]
-        exclusion_keywords.extend(vegan_exclusions)
-        enhanced_query += " 비건 채식"
-        logger.info(f"비건 사용자 - 육류/유제품 제외 키워드 추가: {len(vegan_exclusions)}개")
+        exclusion_keywords.extend(VEGAN_EXCLUSIONS)
+        logger.info(f"비건 사용자 - positive 키워드 적용")
 
     if user_preferences.get("allergy"):
         allergy_items = [item.strip() for item in user_preferences["allergy"].split(",")]
@@ -115,32 +124,21 @@ def filter_recipe_ingredients(ingredients: List[str], user_preferences: Dict[str
     exclusion_items = set()
 
     if user_preferences.get("vegan", False):
-        vegan_exclusions = {
-            "고기", "돼지고기", "소고기", "닭고기", "닭가슴살", "생선", "새우", "오징어", 
-            "계란", "달걀", "우유", "치즈", "버터", "요구르트", "베이컨", "햄", "소시지", 
-            "참치", "연어", "갈치", "조개", "굴", "멸치", "젓갈"
-        }
-        exclusion_items.update(vegan_exclusions)
+        exclusion_items.update(VEGAN_EXCLUSIONS)
 
     if user_preferences.get("allergy"):
-        allergy_items = {item.strip() for item in user_preferences["allergy"].split(",")}
-        exclusion_items.update(allergy_items)
+        exclusion_items.update({item.strip() for item in user_preferences["allergy"].split(",")})
 
     if user_preferences.get("unfavorite"):
-        unfavorite_items = {item.strip() for item in user_preferences["unfavorite"].split(",")}
-        exclusion_items.update(unfavorite_items)
+        exclusion_items.update({item.strip() for item in user_preferences["unfavorite"].split(",")})
 
     for ingredient in ingredients:
         ingredient_clean = ingredient.strip()
-        should_exclude = False
+        should_exclude = any(ex.lower() in ingredient_clean.lower() for ex in exclusion_items)
 
-        for exclusion in exclusion_items:
-            if exclusion.lower() in ingredient_clean.lower() or ingredient_clean.lower() in exclusion.lower():
-                should_exclude = True
-                logger.info(f"재료 '{ingredient_clean}' 제외됨 (사유: '{exclusion}')")
-                break
-        
-        if not should_exclude:
+        if should_exclude:
+            logger.info(f"재료 '{ingredient_clean}' 제외됨 (사유: 사용자 선호도)")
+        else:
             filtered_ingredients.append(ingredient_clean)
     
     logger.info(f"재료 필터링 완료: {len(ingredients)} -> {len(filtered_ingredients)}")
@@ -164,30 +162,39 @@ def should_exclude_recipe_content(title: str, content: str, user_preferences: Di
     combined_text = f"{title} {content}".lower()
 
     if user_preferences.get("vegan", False):
-        vegan_exclusions = [
-            "고기", "돼지", "소고기", "닭", "생선", "새우", "오징어", "계란", "달걀",
-            "우유", "치즈", "버터", "요구르트", "베이컨", "햄", "소시지", "참치",
-            "연어", "갈치", "조개", "굴", "멸치", "젓갈", "육수"
-        ]
-        
-        for exclusion in vegan_exclusions:
-            if exclusion in combined_text:
-                logger.info(f"비건 사용자 - 레시피 제외됨 (사유: '{exclusion}' 포함)")
-                return True
+        if any(ex in combined_text for ex in VEGAN_EXCLUSIONS):
+            logger.info("비건 사용자 - 레시피 제외됨 (동물성 재료 포함)")
+            return True
 
     if user_preferences.get("allergy"):
-        allergy_items = [item.strip().lower() for item in user_preferences["allergy"].split(",")]
-        for allergy in allergy_items:
-            if allergy in combined_text:
-                logger.info(f"알러지 사용자 - 레시피 제외됨 (사유: '{allergy}' 포함)")
-                return True
+        if any(allergy.strip().lower() in combined_text for allergy in user_preferences["allergy"].split(",")):
+            logger.info("알러지 사용자 - 레시피 제외됨")
+            return True
 
     if user_preferences.get("unfavorite"):
-        unfavorite_items = [item.strip().lower() for item in user_preferences["unfavorite"].split(",")]
-        for unfavorite in unfavorite_items:
-            if unfavorite in combined_text:
-                logger.info(f"선호도 - 레시피 제외됨 (사유: '{unfavorite}' 포함)")
-                return True
+        if any(unfav.strip().lower() in combined_text for unfav in user_preferences["unfavorite"].split(",")):
+            logger.info("선호도 사용자 - 레시피 제외됨")
+            return True
     
     return False
 
+def get_personalized_recipe_suggestions(user_preferences: Dict[str, Any]) -> List[str]:
+    """
+    사용자 선호도에 맞는 레시피 추천 키워드 생성
+    """
+    suggestions = []
+    if user_preferences.get("vegan", False):
+        suggestions.extend([
+            "비건 레시피", "채식 요리", "두부 요리", "버섯 요리",
+            "채소 볶음", "콩 요리", "견과류 요리", "비건 파스타", "채식 볶음밥"
+        ])
+        logger.info("비건 사용자를 위한 추천 키워드 추가")
+    return suggestions
+
+def get_vegan_query_enhancement(user_preferences: Dict[str, Any]):
+    """
+    비건 사용자라면 positive/exclusion 반환
+    """
+    if user_preferences.get("vegan", False):
+        return VEGAN_POSITIVE_KEYWORDS, VEGAN_EXCLUSIONS
+    return [], []

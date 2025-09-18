@@ -13,7 +13,7 @@ import requests
 import re
 import json
 from typing import Dict, Any, List, Optional
-from concurrent.futures import ThreadPoolExecutor, as_completed  # hjs 수정
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from mysql.connector import Error
 from bs4 import BeautifulSoup
 
@@ -27,7 +27,8 @@ from policy import (
     get_user_preferences, 
     create_personalized_search_keywords, 
     filter_recipe_ingredients,
-    should_exclude_recipe_content
+    should_exclude_recipe_content,
+    EXCLUDED_DOMAINS
 )
 
 from utils.chat_history import save_recipe_search_result, generate_alternative_search_strategy
@@ -47,36 +48,6 @@ try:
 except ImportError:
     openai_client = None
     logger.warning("OpenAI package not available. LLM-based features will be disabled.")
-
-# --- 메인 라우팅 함수 ---
-# def recipe_search(state: ChatState) -> Dict[str, Any]:
-#     """
-#     사용자 쿼리를 분석하여 두 가지 시나리오 중 하나를 실행합니다.
-#     1. 일반 레시피 검색
-#     2. 선택된 레시피의 재료 추천
-#     """
-#     logger.info("레시피 검색 프로세스 시작")
-#     query = state.query
-
-#     try:
-#         # 시나리오 2: 사용자가 사이드바에서 특정 레시피의 '재료 추천받기'를 클릭한 경우
-#         if "선택된 레시피:" in query and "URL:" in query:
-#             logger.info("시나리오 2: 선택된 레시피 재료 추천 시작")
-#             recipe = _handle_selected_recipe(query, state)
-#             return recipe
-        
-#         # 시나리오 1: 일반적인 레시피 관련 질문인 경우
-#         else:
-#             logger.info("시나리오 1: 일반 레시피 검색 시작")
-#             rewrite_query = state.rewrite.get("text", "")
-#             return _handle_general_recipe_search(query, rewrite_query, state)
-
-#     except Exception as e:
-#         logger.error(f"레시피 검색 중 심각한 오류 발생: {e}", exc_info=True)
-#         return {
-#             "recipe": {"results": [], "ingredients": [], "error": str(e)},
-#             "response": "죄송합니다, 레시피를 검색하는 중 오류가 발생했습니다."
-#         }
 
 def recipe_search(state: ChatState) -> Dict[str, Any]:
     """
