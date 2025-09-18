@@ -42,5 +42,5 @@ tavily-python
 python-multipart
 faster-whisper
 bs4
-
 pyjwt
+lxml
