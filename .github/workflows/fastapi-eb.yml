@@ -55,7 +55,7 @@ jobs:
         env:
           DOCKER_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/${{ secrets.DOCKER_IMAGENAME }}:${{ github.sha }}
         run: |
-          cat > Dockerrun.aws.json << 'EOF'
+          cat > Dockerrun.aws.json << EOF
           {
             "AWSEBDockerrunVersion": "1",
             "Image": {
