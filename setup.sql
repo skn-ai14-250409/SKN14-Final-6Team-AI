@@ -2,18 +2,9 @@
 -- 데이터베이스 생성 및 사용자 설정
 
 -- 데이터베이스 생성
-DROP DATABASE qook_chatbot;
+
 
 CREATE DATABASE IF NOT EXISTS qook_chatbot CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-
--- 사용자 생성 및 권한 부여
-CREATE USER IF NOT EXISTS 'qook_user'@'localhost' IDENTIFIED BY 'qook_pass';
-CREATE USER IF NOT EXISTS 'qook_user'@'%' IDENTIFIED BY 'qook_pass';
-
-GRANT ALL PRIVILEGES ON qook_chatbot.* TO 'qook_user'@'localhost';
-GRANT ALL PRIVILEGES ON qook_chatbot.* TO 'qook_user'@'%';
-
-FLUSH PRIVILEGES;
 
 -- 데이터베이스 사용
 USE qook_chatbot;
