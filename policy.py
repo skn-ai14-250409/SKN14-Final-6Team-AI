@@ -90,19 +90,20 @@ def create_personalized_search_keywords(base_query: str, user_preferences: Dict[
     enhanced_query = base_query
     exclusion_keywords = []
 
-    # 1) 비건: 검색어에 "비건" 붙이기
     if user_preferences.get("vegan", False):
-        if "비건" not in enhanced_query:
-            enhanced_query = f"{enhanced_query} 비건"
-        logger.info("비건 사용자 - positive 키워드 적용 (검색어에 '비건' 추가)")
+        exclusion_keywords.extend(VEGAN_EXCLUSIONS)
+        logger.info(f"비건 사용자 - positive 키워드 적용")
 
-    # 2) 알러지: 검색어 제외 키워드로만 반영
     if user_preferences.get("allergy"):
         allergy_items = [item.strip() for item in user_preferences["allergy"].split(",")]
         exclusion_keywords.extend(allergy_items)
         logger.info(f"알러지 제외 키워드 추가: {allergy_items}")
 
-    # 3) 비선호: 검색에서는 무시 (재료 단계에서만 반영)    
+    if user_preferences.get("unfavorite"):
+        unfavorite_items = [item.strip() for item in user_preferences["unfavorite"].split(",")]
+        exclusion_keywords.extend(unfavorite_items)
+        logger.info(f"싫어하는 음식 제외 키워드 추가: {unfavorite_items}")
+    
     return enhanced_query, exclusion_keywords
 
 def filter_recipe_ingredients(ingredients: List[str], user_preferences: Dict[str, Any]) -> List[str]:
@@ -177,6 +178,18 @@ def should_exclude_recipe_content(title: str, content: str, user_preferences: Di
     
     return False
 
+def get_personalized_recipe_suggestions(user_preferences: Dict[str, Any]) -> List[str]:
+    """
+    사용자 선호도에 맞는 레시피 추천 키워드 생성
+    """
+    suggestions = []
+    if user_preferences.get("vegan", False):
+        suggestions.extend([
+            "비건 레시피", "채식 요리", "두부 요리", "버섯 요리",
+            "채소 볶음", "콩 요리", "견과류 요리", "비건 파스타", "채식 볶음밥"
+        ])
+        logger.info("비건 사용자를 위한 추천 키워드 추가")
+    return suggestions
 
 def get_vegan_query_enhancement(user_preferences: Dict[str, Any]):
     """
