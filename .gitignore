@@ -386,3 +386,24 @@ $RECYCLE.BIN/
 # Streamlit secrets
 .streamlit/
 .streamlit/secrets.toml
+
+# "status_"가 파일명에 포함된 마크다운
+*status_*.md
+*status_*.markdown
+
+# 특정 마크다운 파일들
+team_plan.md
+FUNCTIONS.md
+ERD.md
+claude.md
+AGENTS.md
+INTEGRATION_COMPLETE.md
+team_analysis.md
+project_structure.md
+progress.md
+
+# .cluade 폴더 전체
+.cluade/
+
+# static/uploads 폴더 전체
+/uploads/evidence/
