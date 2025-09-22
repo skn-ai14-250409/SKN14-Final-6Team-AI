@@ -13,7 +13,7 @@ import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from graph_interfaces import ChatState
-
+from config import Config
 from utils.chat_history import (
     analyze_user_emotion,
     get_empathy_response,
@@ -173,7 +173,7 @@ def generate_contextual_response_llm(query: str, history: List[Dict], emotion_an
 """
 
         response = openai_client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=Config.OPENAI_MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
@@ -211,7 +211,7 @@ def generate_fallback_response_llm(query: str) -> str:
 """
 
         response = openai_client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=Config.OPENAI_MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": query}
@@ -266,7 +266,7 @@ def _generate_llm_response(query: str) -> str:
 
     try:
         response = openai_client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=Config.OPENAI_MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": query}

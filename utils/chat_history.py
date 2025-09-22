@@ -31,6 +31,7 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from graph_interfaces import ChatState
+from config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -126,72 +127,6 @@ def get_contextual_analysis(history: List[Dict], current_query: str) -> Dict[str
     else:
         return get_contextual_analysis_fallback(history, current_query)
 
-
-# def get_contextual_analysis_llm(history: List[Dict], current_query: str) -> Dict[str, Any]:
-#     """LLM 기반 고급 맥락 분석 (원본 버전 - 빈 히스토리 처리 문제 있음)"""
-#     try:
-#         recent_context = get_recent_context(history, turns=5)
-
-#         system_prompt = """
-# 당신은 대화 맥락을 분석하는 전문가입니다.
-# 이전 대화에서 봇이 추천한 내용과 현재 사용자 질문의 연관성을 분석해주세요.
-
-# 분석 항목:
-# 1. 이전 추천 내역 추출
-# 2. 현재 질문의 의도 파악 (새로운 요청 vs 연관 요청 vs 후속 질문)
-# 3. 대화 주제 연속성
-# 4. 제안할 대안 카테고리
-
-# JSON 형태로만 답변하세요:
-# {
-#     "previous_recommendations": ["이전에 추천한 항목들"],
-#     "conversation_theme": "대화 주제",
-#     "followup_intent": "none|similar|alternative|clarification",
-#     "suggested_alternatives": ["제안할 대안들"],
-#     "context_summary": "맥락 요약"
-# }
-
-# followup_intent 설명:
-# - none: 완전히 새로운 요청
-# - similar: 비슷한 것 더 요청
-# - alternative: 다른 대안 요청 ("다른 XX 없을까?")
-# - clarification: 명확화 요청
-# """
-
-#         user_prompt = f"""
-# 최근 대화 맥락:
-# {recent_context}
-
-# 현재 사용자 질문: "{current_query}"
-
-# 위 정보를 분석해주세요.
-# """
-
-#         response = openai_client.chat.completions.create(
-#             model="gpt-4o-mini",
-#             messages=[
-#                 {"role": "system", "content": system_prompt},
-#                 {"role": "user", "content": user_prompt}
-#             ],
-#             max_tokens=300,
-#             temperature=0.3
-#         )
-
-#         result_text = response.choices[0].message.content.strip()
-
-#         try:
-#             result = json.loads(result_text)
-#             logger.info(f"LLM contextual analysis: {result}")
-#             return result
-#         except json.JSONDecodeError:
-#             logger.warning(f"Failed to parse LLM contextual analysis: {result_text}")
-#             return get_contextual_analysis_fallback(history, current_query)
-
-#     except Exception as e:
-#         logger.error(f"LLM contextual analysis failed: {e}")
-#         return get_contextual_analysis_fallback(history, current_query)
-
-
 def get_contextual_analysis_llm(history: List[Dict], current_query: str) -> Dict[str, Any]:
     """LLM 기반 고급 맥락 분석 (빈 히스토리 처리 개선 버전)"""
     try:
@@ -246,7 +181,7 @@ followup_intent 설명:
 """
 
         response = openai_client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=Config.OPENAI_MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
@@ -398,7 +333,7 @@ def analyze_user_emotion_llm(query: str, history: List[Dict]) -> Dict[str, Any]:
 """
 
         response = openai_client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=Config.OPENAI_MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
@@ -523,7 +458,7 @@ def get_empathy_response_llm(emotion: str, context: str, intensity: str) -> str:
 """
 
         response = openai_client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=Config.OPENAI_MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
@@ -612,7 +547,7 @@ JSON 형태로 답변해주세요:
 """
 
         response = openai_client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=Config.OPENAI_MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
@@ -921,7 +856,7 @@ JSON 형식으로만 응답하세요:
 """
 
         response = openai_client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=Config.OPENAI_MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
@@ -1005,7 +940,7 @@ JSON 형식으로만 응답:
 """
 
         response = openai_client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=Config.OPENAI_MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
@@ -1106,7 +1041,7 @@ JSON 형식으로만 응답:
 """
 
         response = openai_client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=Config.OPENAI_MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}

@@ -1,5 +1,5 @@
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import FastAPI, Request, Depends, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -162,6 +162,21 @@ async def get_current_user(request: Request):
         pass
     return None
 
+async def require_login_for_page(request: Request):
+    """페이지 진입용: 비로그인 시 로그인 페이지로 리다이렉트"""
+    user = await get_current_user(request)
+    if not user:
+        return RedirectResponse(url=f"/login?next={request.url.path}", status_code=303)
+    return user
+
+# (선택) API 전용: 비로그인 시 401
+async def require_login_for_api(request: Request):
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Login required")
+    return user
+
+
 @app.get("/", response_class=HTMLResponse)
 async def get_landing_page(request: Request):
     current_user = await get_current_user(request)
@@ -173,12 +188,16 @@ async def get_landing_page(request: Request):
 @app.get("/chat", response_class=HTMLResponse)
 async def get_chat_page(request: Request):
     current_user = await get_current_user(request)
+    
+    if not current_user:
+        return RedirectResponse(url=f"/login?next=/chat", status_code=303)
+    
     display_name = None
     try:
         if current_user:
             display_name = _get_user_display_name(current_user) or str(current_user)
     except Exception:
-        display_name = str(current_user) if current_user else None
+        display_name = str(current_user) # if current_user else None
     return templates.TemplateResponse("chat.html", {
         "request": request,
         "current_user": current_user,
