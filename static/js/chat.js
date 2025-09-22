@@ -625,7 +625,7 @@ renderEvidenceResultBubble(data, ctx){
       const pending = localStorage.getItem(`chat_pending_message_${this.userId}`);
       if (pending){
         this.addMessage(pending, 'user');
-        this.sendMessage(pending, true);
+        this.sendMessage(pending, false);
         localStorage.removeItem(`chat_pending_message_${this.userId}`);
       }
     }catch(_){ }
