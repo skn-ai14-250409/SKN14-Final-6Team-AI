@@ -51,9 +51,9 @@ class ChatBot {
         sessionStorage.setItem(bootKey, '1');
       }
     } catch (_) {}
+    this.hideCustomLoading();
     this.restoreChatState();
     try { this.renderFavorites(); } catch(_) {}
-    this.hideCustomLoading();
   }
 
   bindEvents() {
