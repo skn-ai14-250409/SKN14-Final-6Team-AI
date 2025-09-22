@@ -13,7 +13,7 @@ class Config:
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
     TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
     PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
-    OPENAI_MODEL = os.getenv("GPT_MODEL", 'gpt-4o-mini')
+    OPENAI_MODEL = os.getenv("OPENAI_MODEL", 'gpt-4o-mini')
     
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
     LOG_FORMAT = os.getenv("LOG_FORMAT", '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
