@@ -15,6 +15,7 @@ from graph_interfaces import ChatState
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils.chat_history import analyze_search_intent_with_history
+from config import Config
 
 logger = logging.getLogger("B_QUERY_ENHANCEMENT")
 
@@ -293,7 +294,7 @@ def _llm_enhance_with_history(query: str, search_intent: Dict[str, Any]) -> Opti
 """
 
         response = openai_client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=Config.OPENAI_MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": context_info}
@@ -459,7 +460,7 @@ def _llm_enhance_all(query: str) -> Optional[Dict[str, Any]]:
     user_message = f"{history_section}{intent_hint}[현재 입력]\n{query}"  # hjs 수정 # 멀티턴 기능
     try:
         response = openai_client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=Config.OPENAI_MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message}

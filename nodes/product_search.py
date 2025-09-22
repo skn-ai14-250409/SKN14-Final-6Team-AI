@@ -9,6 +9,7 @@ import sys
 from graph_interfaces import ChatState
 from utils.chat_history import summarize_product_search_with_history  # hjs 수정 # 멀티턴 기능
 from utils.db import get_db_connection as get_raw_db_connection  # hjs 수정
+from config import Config
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 logger = logging.getLogger('chatbot.product_search')
@@ -191,15 +192,15 @@ class ProductSearchEngine:
                 result = {"success": True, "candidates": rag_result, "method": "rag"}
 
         # 2차 LLM 필터링 수행
-        if result and result["success"] and result.get("candidates"):
-            logger.info(f"LLM 필터링 전 후보 개수: {len(result['candidates'])}")
-            # 이를 통해 필터링 함수가 'rewrite'와 'keywords' 정보에 접근할 수 있습니다.
-            filtered_candidates = _filter_products_with_llm(result["candidates"], state, openai_client)
-            logger.info(f"LLM 필터링 후 후보 개수: {len(filtered_candidates)}")
-            # 필터링된 결과로 업데이트
-            result["candidates"] = filtered_candidates
-            result["filtered"] = True
-            return result
+        # if result and result["success"] and result.get("candidates"):
+        #     logger.info(f"LLM 필터링 전 후보 개수: {len(result['candidates'])}")
+        #     # 이를 통해 필터링 함수가 'rewrite'와 'keywords' 정보에 접근할 수 있습니다.
+        #     filtered_candidates = _filter_products_with_llm(result["candidates"], state, openai_client)
+        #     logger.info(f"LLM 필터링 후 후보 개수: {len(filtered_candidates)}")
+        #     # 필터링된 결과로 업데이트
+        #     result["candidates"] = filtered_candidates
+        #     result["filtered"] = True
+        #     return result
 
         logger.warning("Text2SQL 및 RAG 검색 모두 실패")
         # return {"success": False, "candidates": [], "method": "failed", "error": "검색 결과가 없습니다."}
@@ -215,7 +216,7 @@ class ProductSearchEngine:
             system_prompt = self._build_system_prompt(query,slots)
             user_prompt = self._build_user_prompt(query, slots)
             response = openai_client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=Config.OPENAI_MODEL,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
@@ -494,7 +495,7 @@ SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN s
                 "schema_notes": "product_tbl(product,item,origin,organic,unit_price), category_tbl(item->category_id)"
             }, ensure_ascii=False)
             resp = openai_client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=Config.OPENAI_MODEL,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
@@ -805,7 +806,7 @@ relevant_products 리스트 외에 다른 설명, 주석, 예시는 절대 포�
 """
     try:
         response = llm_client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=Config.OPENAI_MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}

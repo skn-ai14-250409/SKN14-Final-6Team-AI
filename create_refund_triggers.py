@@ -1,12 +1,5 @@
-import mysql.connector
-
-DB_CONFIG = dict(
-    host="127.0.0.1",
-    user="qook_user",
-    password="qook_pass",
-    database="qook_chatbot",
-    port=3306,
-)
+from utils.db import get_db_connection
+import mysql.connector.Error
 
 BI = """
 CREATE TRIGGER bi_refund_qty_guard
@@ -62,7 +55,7 @@ END
 """
 
 def main():
-    conn = mysql.connector.connect(**DB_CONFIG)
+    conn = get_db_connection()
     conn.autocommit = True
     cur = conn.cursor()
     try:

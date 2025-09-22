@@ -21,6 +21,7 @@ from bs4 import BeautifulSoup
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from graph_interfaces import ChatState
+from config import Config
 
 # 개인맞춤화 정책 임포트
 from policy import (
@@ -28,6 +29,7 @@ from policy import (
     create_personalized_search_keywords, 
     filter_recipe_ingredients,
     should_exclude_recipe_content,
+    get_vegan_query_enhancement,
     EXCLUDED_DOMAINS
 )
 
@@ -251,7 +253,6 @@ def _handle_general_recipe_search(original_query: str, rewrite_query: str, state
     if user_preferences:
         personalized_query, exclusion_keywords = create_personalized_search_keywords(base_query, user_preferences)
         logger.info(f"개인맞춤화된 쿼리: {personalized_query}")
-        logger.info(f"제외 키워드: {exclusion_keywords}")
         recipe_query = personalized_query
     else:
         recipe_query = base_query
@@ -453,11 +454,7 @@ def _passes_user_preferences(product_name: str, user_preferences: Optional[Dict[
     lowered = product_name.lower()
 
     if user_preferences.get("vegan", False):
-        vegan_exclusions = [
-            "고기", "돼지", "소고기", "닭", "생선", "새우", "오징어",
-            "계란", "달걀", "우유", "치즈", "버터", "요구르트", "베이컨",
-            "햄", "소시지", "참치", "연어", "멸치", "젓갈"
-        ]
+        _, vegan_exclusions = get_vegan_query_enhancement(user_preferences)
         if any(exclusion in lowered for exclusion in vegan_exclusions):
             return False
 
@@ -486,11 +483,7 @@ def _legacy_product_details_lookup(ingredient_names: List[str], user_preferences
 
             if user_preferences:
                 if user_preferences.get("vegan", False):
-                    vegan_exclusions = [
-                        "고기", "돼지", "소고기", "닭", "생선", "새우", "오징어",
-                        "계란", "달걀", "우유", "치즈", "버터", "요구르트", "베이컨",
-                        "햄", "소시지", "참치", "연어", "멸치", "젓갈"
-                    ]
+                    _, vegan_exclusions = get_vegan_query_enhancement(user_preferences)
                     for exclusion in vegan_exclusions:
                         exclusion_conditions.append(f"p.product NOT LIKE '%{exclusion}%'")
                     logger.info("비건 사용자 - 동물성 제품 제외 조건 추가")
@@ -552,8 +545,7 @@ def _is_crawlable_url(url: str) -> bool:
         parsed = urlparse(url.lower())
         domain = parsed.netloc.replace('www.', '')
         
-        excluded_patterns = ['youtube.', 'youtu.be', 'instagram.', 'facebook.', 'tiktok.', 'pinterest.']
-        if any(pattern in domain for pattern in excluded_patterns):
+        if any(pattern in domain for pattern in EXCLUDED_DOMAINS):
             return False
         
         path = parsed.path.lower()
@@ -594,9 +586,9 @@ def _search_with_tavily_filtered(query: str, user_preferences: Dict[str, Any] = 
 
         if user_preferences:
             if user_preferences.get("vegan", False):
-                meat_exclusions = ["-고기", "-돼지고기", "-소고기", "-닭고기", "-생선", "-육류"]
-                exclusion_terms.extend(meat_exclusions)
-                logger.info("비건 사용자 - 육류 관련 검색 결과 제외")
+                # meat_exclusions = ["-고기", "-돼지고기", "-소고기", "-닭고기", "-생선", "-육류"]
+                exclusion_terms.extend("+비건")
+                logger.info("비건 사용자 - 검색 쿼리에 +비건 추가")
 
             if user_preferences.get("allergy"):
                 allergy_items = user_preferences["allergy"].split(",")
@@ -604,11 +596,11 @@ def _search_with_tavily_filtered(query: str, user_preferences: Dict[str, Any] = 
                     exclusion_terms.append(f"-{item.strip()}")
                 logger.info(f"알러지 기반 제외 키워드 추가: {allergy_items}")
 
-            if user_preferences.get("unfavorite"):
-                unfavorite_items = user_preferences["unfavorite"].split(",")
-                for item in unfavorite_items:
-                    exclusion_terms.append(f"-{item.strip()}")
-                logger.info(f"선호도 기반 제외 키워드 추가: {unfavorite_items}")
+            # if user_preferences.get("unfavorite"):
+            #     unfavorite_items = user_preferences["unfavorite"].split(",")
+            #     for item in unfavorite_items:
+            #         exclusion_terms.append(f"-{item.strip()}")
+            #     logger.info(f"선호도 기반 제외 키워드 추가: {unfavorite_items}")
 
         enhanced_query = f"{query} 레시피 {' '.join(exclusion_terms)}"
 
@@ -619,7 +611,7 @@ def _search_with_tavily_filtered(query: str, user_preferences: Dict[str, Any] = 
         )
 
         search_results_list = search_result.get("results", [])
-        random.shuffle(search_results_list)
+        # random.shuffle(search_results_list)
 
         validated_results = []
 
@@ -653,7 +645,7 @@ def _search_with_tavily_filtered(query: str, user_preferences: Dict[str, Any] = 
                 try:
                     if original_title:
                         title_response = openai_client.chat.completions.create(
-                            model="gpt-4o-mini",
+                            model=Config.OPENAI_MODEL,
                             messages=[
                                 {"role": "system", "content": "다음 레시피 제목을 30글자 내로 간단명료하게 요약해줘. 예시: '자취생도 쉽게 만드는 초간단 김치찌개 레시피' / '자꾸 땡기는 마약양념의 매콤한 닭볶음탕 조리법"},
                                 {"role": "user", "content": f"제목 요약: {original_title}"}
@@ -667,7 +659,7 @@ def _search_with_tavily_filtered(query: str, user_preferences: Dict[str, Any] = 
 
                     if content:
                         desc_response = openai_client.chat.completions.create(
-                            model="gpt-4o-mini",
+                            model=Config.OPENAI_MODEL,
                             messages=[
                                 {"role": "system", "content": "다음 레시피 내용을 20~30글자로 간단명료하게 요약해줘. 답변 예시 1: 김치·참치 볶아 두부 올린 매콤찌개 완성. 답변 예시 2: 닭고기 데쳐 채소 넣고 매콤하게 끓인 닭볶음탕"},
                                 {"role": "user", "content": f"요약: {content[:300]}"}
@@ -707,9 +699,9 @@ def _search_with_tavily(query: str, user_preferences: Dict[str, Any] = None) -> 
 
         if user_preferences:
             if user_preferences.get("vegan", False):
-                meat_exclusions = ["-고기", "-돼지고기", "-소고기", "-닭고기", "-생선", "-육류"]
-                exclusion_terms.extend(meat_exclusions)
-                logger.info("비건 사용자 - 육류 관련 검색 결과 제외")
+                # meat_exclusions = ["-고기", "-돼지고기", "-소고기", "-닭고기", "-생선", "-육류"]
+                exclusion_terms.extend("+비건")
+                logger.info("비건 사용자 - 검색 쿼리에 +비건 추가")
 
             if user_preferences.get("allergy"):
                 allergy_items = user_preferences["allergy"].split(",")
@@ -717,22 +709,22 @@ def _search_with_tavily(query: str, user_preferences: Dict[str, Any] = None) -> 
                     exclusion_terms.append(f"-{item.strip()}")
                 logger.info(f"알러지 기반 제외 키워드 추가: {allergy_items}")
 
-            if user_preferences.get("unfavorite"):
-                unfavorite_items = user_preferences["unfavorite"].split(",")
-                for item in unfavorite_items:
-                    exclusion_terms.append(f"-{item.strip()}")
-                logger.info(f"선호도 기반 제외 키워드 추가: {unfavorite_items}")
+            # if user_preferences.get("unfavorite"):
+            #     unfavorite_items = user_preferences["unfavorite"].split(",")
+            #     for item in unfavorite_items:
+            #         exclusion_terms.append(f"-{item.strip()}")
+            #     logger.info(f"선호도 기반 제외 키워드 추가: {unfavorite_items}")
         
         enhanced_query = f"{query} 레시피 {' '.join(exclusion_terms)}"
         
         search_result = client.search(
             query=enhanced_query,
             search_depth="basic",
-            max_results=20 
+            max_results=30 
         )
         
         search_results_list = search_result.get("results", [])
-        random.shuffle(search_results_list)
+        # random.shuffle(search_results_list)
 
         validated_results = []
         
@@ -762,7 +754,7 @@ def _search_with_tavily(query: str, user_preferences: Dict[str, Any] = None) -> 
                 try:
                     if original_title:
                         title_response = openai_client.chat.completions.create(
-                            model="gpt-4o-mini",
+                            model=Config.OPENAI_MODEL,
                             messages=[
                                 {"role": "system", "content": "다음 레시피 제목을 30글자 내로 간단명료하게 요약해줘. 예시: '자취생도 쉽게 만드는 초간단 김치찌개 레시피' / '자꾸 땡기는 마약양념의 매콤한 닭볶음탕 조리법"},
                                 {"role": "user", "content": f"제목 요약: {original_title}"}
@@ -775,7 +767,7 @@ def _search_with_tavily(query: str, user_preferences: Dict[str, Any] = None) -> 
                     
                     if content:
                         desc_response = openai_client.chat.completions.create(
-                            model="gpt-4o-mini",
+                            model=Config.OPENAI_MODEL,
                             messages=[
                                 {"role": "system", "content": "다음 레시피 내용을 20~30글자로 간단명료하게 요약해줘. 답변 예시 1: 김치·참치 볶아 두부 올린 매콤찌개 완성. 답변 예시 2: 닭고기 데쳐 채소 넣고 매콤하게 끓인 닭볶음탕"},
                                 {"role": "user", "content": f"요약: {content[:300]}"}
@@ -811,7 +803,9 @@ def _scrape_and_structure_recipe(url: str) -> Optional[Dict[str, Any]]:
         response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()
         
-        soup = BeautifulSoup(response.content, 'html.parser')
+        soup = BeautifulSoup(response.content, 'lxml') # lxml
+        for t in soup(["script", "style", "noscript"]): # 태그제거
+            t.decompose()
         page_text = soup.get_text(separator='\n', strip=True)
         
         if not openai_client:
@@ -831,7 +825,7 @@ def _extract_recipe_query(original_query: str, rewrite_query: str = "") -> str:
 
     try:
         response = openai_client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=Config.OPENAI_MODEL,
             messages=[
                 {"role": "system", "content": "사용자의 질문에서 핵심 요리 이름만 추출해줘. 예를 들어 '김치찌개 맛있게 끓이는 법 알려줘' -> '김치찌개'"},
                 {"role": "user", "content": f"원본: '{original_query}', 재작성: '{rewrite_query}'"}
@@ -1022,7 +1016,7 @@ def _llm_extract_recipe_content(page_text: str) -> Dict[str, Any]:
     user_prompt = f"다음 웹페이지 텍스트에서 레시피 정보를 추출해줘:\n\n---\n{page_text}\n---"
 
     response = openai_client.chat.completions.create(
-        model="gpt-4o-mini",
+        model=Config.OPENAI_MODEL,
         response_format={"type": "json_object"},
         messages=[
             {"role": "system", "content": system_prompt},
