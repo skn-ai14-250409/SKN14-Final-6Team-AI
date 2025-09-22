@@ -199,7 +199,7 @@ class ProductSearchEngine:
             # logger.info(f"LLM 필터링 후 후보 개수: {len(filtered_candidates)}")
             # # 필터링된 결과로 업데이트
             # result["candidates"] = filtered_candidates
-            # result["filtered"] = True
+            result["filtered"] = True
             return result
 
         logger.warning("Text2SQL 및 RAG 검색 모두 실패")
