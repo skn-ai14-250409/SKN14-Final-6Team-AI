@@ -17,6 +17,7 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from graph_interfaces import ChatState
 from utils.chat_history import build_global_context_snapshot  # hjs 수정 # 멀티턴 기능
+from config import Config
 
 logger = logging.getLogger("A_ROUTER_CLARIFY")
 
@@ -179,7 +180,7 @@ def _llm_routing(query: str) -> Dict[str, Any]:
 
     try:
         response = openai_client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=Config.OPENAI_MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
@@ -266,7 +267,7 @@ def _llm_routing_with_history(query: str, context_payload: Dict[str, Any]) -> Di
     user_prompt = f'사용자 입력: "{query}"\n\n최근 맥락 정보(JSON): {history_json}'
 
     response = openai_client.chat.completions.create(
-        model="gpt-4o-mini",
+        model=Config.OPENAI_MODEL,
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}

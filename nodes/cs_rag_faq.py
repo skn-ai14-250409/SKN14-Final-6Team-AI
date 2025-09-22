@@ -1,6 +1,7 @@
 from typing import Dict, Any, List
 from .cs_common import openai_client, pinecone_index, get_db_connection, logger
 from mysql.connector import Error
+from config import Config
 
 
 def faq_policy_rag(state) -> Dict[str, Any]:
@@ -53,7 +54,7 @@ def faq_policy_rag(state) -> Dict[str, Any]:
         위 문서를 기반으로 고객에게 친절하고 정확한 답변을 200자 이내로 작성하세요.
         """
         response = openai_client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=Config.OPENAI_MODEL,
             messages=[{"role": "user", "content": rag_prompt}],
             temperature=0.2,
             max_tokens=400,
