@@ -192,15 +192,15 @@ class ProductSearchEngine:
                 result = {"success": True, "candidates": rag_result, "method": "rag"}
 
         # 2차 LLM 필터링 수행
-        # if result and result["success"] and result.get("candidates"):
-        #     logger.info(f"LLM 필터링 전 후보 개수: {len(result['candidates'])}")
-        #     # 이를 통해 필터링 함수가 'rewrite'와 'keywords' 정보에 접근할 수 있습니다.
-        #     filtered_candidates = _filter_products_with_llm(result["candidates"], state, openai_client)
-        #     logger.info(f"LLM 필터링 후 후보 개수: {len(filtered_candidates)}")
-        #     # 필터링된 결과로 업데이트
-        #     result["candidates"] = filtered_candidates
-        #     result["filtered"] = True
-        #     return result
+        if result and result["success"] and result.get("candidates"):
+            # logger.info(f"LLM 필터링 전 후보 개수: {len(result['candidates'])}")
+            # # 이를 통해 필터링 함수가 'rewrite'와 'keywords' 정보에 접근할 수 있습니다.
+            # filtered_candidates = _filter_products_with_llm(result["candidates"], state, openai_client)
+            # logger.info(f"LLM 필터링 후 후보 개수: {len(filtered_candidates)}")
+            # # 필터링된 결과로 업데이트
+            # result["candidates"] = filtered_candidates
+            # result["filtered"] = True
+            return result
 
         logger.warning("Text2SQL 및 RAG 검색 모두 실패")
         # return {"success": False, "candidates": [], "method": "failed", "error": "검색 결과가 없습니다."}
