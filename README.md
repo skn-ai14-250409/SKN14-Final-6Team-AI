@@ -56,10 +56,10 @@
 마켓컬리의 FAQ와 이용약관을 수집·분석하고, 이를 기반으로 당사 서비스 환경에 적합한 Qook 전용 더미데이터를 생성
 
 ### 🗂️ ERD
-![ERD](static/images/png)=> 첨부 예정
+![ERD](static/images/ERD.png)
 
 ## 🏗️ 시스템 아키텍처 및 유저플로우
-![ERD](static/images/system_archi.png)
+![system_archi](static/images/qook_system_architecture.png)
 
 
 ---
