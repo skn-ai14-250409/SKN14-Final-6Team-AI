@@ -585,6 +585,10 @@ async def get_mypage(request: Request):
         "current_user": current_user
     })
 
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}
+
 class BulkCartAddRequest(BaseModel):
     user_id: str
     products: List[dict]
