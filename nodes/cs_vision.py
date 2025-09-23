@@ -2,6 +2,7 @@ import base64
 import json
 from typing import Dict, Any, List, Tuple, Optional
 from .cs_common import openai_client, logger
+from config import Config
 
 
 def _normalize_name(s: str) -> str:
@@ -58,7 +59,7 @@ def _llm_same_product_check(target_name: str, candidates: List[str], ocr_text: L
         ],
     }
     resp = openai_client.chat.completions.create(
-        model="gpt-4o-mini",
+        model=Config.OPENAI_MODEL,
         response_format={"type": "json_object"},
         messages=[
             {"role": "system", "content": system},
@@ -136,7 +137,7 @@ def analyze_attachments(attachments: List[str]) -> Optional[Dict[str, Any]]:
             "라벨/문구가 보이면 ocr_text에 짧게 담아주세요. 결과는 반드시 한국어 값을 갖는 단일 JSON으로만 출력하세요."
         )
         resp = openai_client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=Config.OPENAI_MODEL,
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": system_prompt},
