@@ -1,4 +1,3 @@
-// hjs 수정: UI 헬퍼(클램프/포맷/이스케이프 등)
 (function(global){
   'use strict';
 
@@ -13,7 +12,6 @@
     return new Intl.NumberFormat('ko-KR').format(price);
   }
 
-  // 화면 폭과 유사한 폭에서 라인 수를 계산해 8줄 초과 시 접기 대상 판정
   function needsClamp(html){
     const probe = document.createElement('div');
     probe.style.cssText = 'position:absolute; left:-9999px; top:-9999px; visibility:hidden; max-width:520px; line-height:1.4; font-size:14px;';

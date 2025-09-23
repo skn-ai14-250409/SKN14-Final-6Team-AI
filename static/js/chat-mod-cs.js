@@ -1,9 +1,7 @@
-// hjs 수정: CS/주문 상세/증빙 업로드 모듈 (ChatCS)
 (function(global){
   'use strict';
   const ChatCS = {
 
-    // 상담사 연결 대기시간 메시지 생성 추가
     createWaitingMessage(){
       const count = Math.floor(Math.random() * 15);
       const min = count * 3;
@@ -55,7 +53,7 @@
       messages.appendChild(wrap);
       if (bot.scrollToBottom) bot.scrollToBottom();
     },
-    // hjs 수정: 더보기 버튼 처리 — 나머지 주문을 펼쳐서 보여줌
+
     handleShowMoreOrders(bot, e){
       const btn = e.target.closest('.show-more-orders-btn');
       if (!btn) return;
@@ -85,7 +83,7 @@
       }catch(err){ console.error('show more orders error', err); }
     },
     handleOrderSelectClick(bot, e){
-      // hjs 수정: 주문 선택 시 상세 조회 호출
+
       const btn = e.target.closest('.order-select-btn');
       if (!btn) return;
       const orderCode = btn.dataset.order;
@@ -93,13 +91,13 @@
       if (typeof bot.fetchAndShowOrderDetails === 'function') bot.fetchAndShowOrderDetails(orderCode);
     },
     async handleOrderItemClick(bot, e){
-      // hjs 수정: 행 클릭 시 증빙 업로드 시작 (배송문의 제외)
+
       if (e.target.closest('.evidence-upload-btn')) return;
       const row = e.target.closest('tr.order-item-row');
       if (!row) return;
       const bubble = row.closest('.order-details-bubble');
       if (!bubble) return;
-      if (bot.isCurrentlyDeliveryInquiry) return; // 배송문의면 비활성
+      if (bot.isCurrentlyDeliveryInquiry) return; 
 
       const product = row.dataset.product || '';
       const orderCode = bubble.dataset.orderCode || '';
@@ -111,7 +109,7 @@
       if (bot.evidenceInput) bot.evidenceInput.click();
     },
     handleEvidenceUploadButtonClick(bot, e){
-      // hjs 수정: 증빙 버튼 클릭 시 수량 입력 후 업로드 시작
+
       const btn = e.target.closest('.evidence-upload-btn');
       if (!btn) return;
       const row = btn.closest('tr.order-item-row');
@@ -131,7 +129,7 @@
       if (bot.evidenceInput) bot.evidenceInput.click();
       if (typeof bot._fileDialogClosedCheck === 'function') setTimeout(() => bot._fileDialogClosedCheck(), 700);
     },
-    // hjs 수정: 주문 상세 말풍선 렌더를 모듈로 이관
+
     renderOrderDetailsBubble(bot, data){
       const code = UIHelpers.escapeHtml(String(data.order_code || ''));
       const date = UIHelpers.escapeHtml(data.order_date || '');
@@ -141,7 +139,6 @@
         const rawName = it.product || it.name || '';
         const name = UIHelpers.escapeHtml(rawName);
         const qty = Number(it.quantity || it.qty || 0);
-        // hjs 수정: order_detail.price는 라인 합계 → 단가는 (라인/수량)
         const lineTotal = Number(it.price || it.unit_price || 0);
         const unitPrice = qty > 0 ? (lineTotal / qty) : lineTotal;
         const price = unitPrice;

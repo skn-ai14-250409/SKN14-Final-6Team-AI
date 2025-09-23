@@ -1,10 +1,3 @@
-"""
-casual_chat.py - 일상대화 처리 노드
-
-사용자의 일상적인 인사나 대화에 친근하고 자연스러운 응답을 제공합니다.
-적절한 경우 쇼핑몰의 기능으로 자연스럽게 연결합니다.
-"""
-
 import logging
 import random
 from typing import Dict, Any, List

@@ -484,7 +484,7 @@ class ChatBot {
     }).then(r=>r.json()).then((data)=>{
       if (data && data.code==='already_removed') this.addMessage('이미 제거된 레시피 입니다','bot');
     }).catch(e=>console.error('removeFavoriteRecipe error', e)).finally(()=>{
-      const targetUrl = ((item.url || item.recipe_url || '')+'').trim();  // hjs 수정: 즐겨찾기 항목 키 정규화
+      const targetUrl = ((item.url || item.recipe_url || '')+'').trim();  
       const targetTitle = ((item.title || item.recipe_title || '')+'').trim();
       const list=this.loadFavoriteRecipes().filter(x=>{
         const entryUrl = ((x && (x.url || x.recipe_url)) || '').trim();
@@ -563,7 +563,7 @@ renderEvidenceResultBubble(data, ctx){
 
   updateCart(cart, saveState = true){
     if (window.ChatCart && typeof ChatCart.updateCart === 'function') {
-      // hjs 수정: 장바구니 UI 처리를 모듈에 위임하여 ChatBot을 경량화했습니다. # 멀티턴 기능
+
       return ChatCart.updateCart(this, cart, saveState);
     }
     if (saveState && cart) {

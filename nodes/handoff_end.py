@@ -1,13 +1,3 @@
-"""
-handoff_end.py — F역할: 핸드오프 & 세션 종료 (상담사 연결/오케스트레이션)
-
-F역할의 책임:
-- handoff(): 상담사/CRM 이관 기능
-- end_session(): 세션 종료 및 최종 결과 정리
-- 대화 요약 및 개인정보 필터링
-- CRM 웹훅 연동
-"""
-
 import logging
 import json
 import uuid
@@ -16,17 +6,12 @@ from typing import Any, Dict, List, Optional
 from dataclasses import asdict
 import numpy as np
 
-# 상대 경로로 graph_interfaces 임포트
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from graph_interfaces import ChatState
 
 logger = logging.getLogger("F_HANDOFF_END")
-
-# ============================================================================
-# F역할 전용 설정 및 유틸리티
-# ============================================================================
 
 class CRMAdapter:
     """CRM/상담 시스템 연동 어댑터"""
@@ -40,7 +25,7 @@ class CRMAdapter:
         configs = {
             "zendesk": "https://qook.zendesk.com/api/v2",
             "freshdesk": "https://qook.freshdesk.com/api/v2", 
-            "mock": "http://localhost:8080/mock-crm"  # 개발용
+            "mock": "http://localhost:8080/mock-crm" 
         }
         return configs.get(crm_type, configs["mock"])
     
@@ -69,16 +54,9 @@ class ConversationSummarizer:
         """개인정보 마스킹"""
         import re
         
-        # 전화번호 마스킹 (010-1234-5678 → 010-****-5678)
         text = re.sub(r'010-\d{4}-(\d{4})', r'010-****-\1', text)
-        
-        # 이메일 마스킹 (test@email.com → t***@email.com)
         text = re.sub(r'(\w)[\w\.-]*@', r'\1***@', text)
-        
-        # 주소 마스킹 (상세주소 부분만)
         text = re.sub(r'(\S+동\s+\d+)[\s\S]*?(\d+호)', r'\1 ***동 \2', text)
-        
-        # 카드번호 마스킹 (1234-5678-9012-3456 → ****-****-****-3456)
         text = re.sub(r'\b(\d{4})-(\d{4})-(\d{4})-(\d{4})\b', r'****-****-****-\4', text)
         
         return text
@@ -97,10 +75,6 @@ class ConversationSummarizer:
         }
         
         return summary
-
-# ============================================================================
-# F역할 핵심 함수 구현
-# ============================================================================
 
 def _create_message():
     
@@ -125,14 +99,12 @@ def handoff(state: ChatState) -> Dict[str, Any]:
     })
     
     try:
-        # 1. 이관 사유 분석
+
         handoff_reason = _analyze_handoff_reason(state)
         
-        # 2. 대화 요약 및 개인정보 필터링
         summarizer = ConversationSummarizer()
         conversation_summary = summarizer.summarize_conversation(state)
         
-        # 3. CRM 티켓 데이터 준비
         ticket_data = {
             "user_id": state.user_id,
             "session_id": state.session_id,
@@ -154,11 +126,9 @@ def handoff(state: ChatState) -> Dict[str, Any]:
             }
         }
         
-        # 4. CRM 시스템에 티켓 생성
         crm_adapter = CRMAdapter()
         crm_result = crm_adapter.create_ticket(ticket_data)
         
-        # 5. 핸드오프 상태 업데이트
         msg = _create_message()
         handoff_result = {
             "ticket_id": state.cs.get("ticket", {}).get("ticket_id", f"T-{uuid.uuid4().hex[:8]}"),
@@ -189,7 +159,6 @@ def handoff(state: ChatState) -> Dict[str, Any]:
             "error": str(e)
         })
         
-        # 실패 시 폴백
         return {
             "handoff": {
                 "status": "failed",
@@ -213,13 +182,11 @@ def end_session(state: ChatState) -> Dict[str, Any]:
     })
     
     try:
-        # 1. 종료 사유 및 결과 분석
+
         end_reason, artifacts = _analyze_session_outcome(state)
         
-        # 2. 최종 메시지 생성
         final_message = _generate_final_message(state, end_reason)
         
-        # 3. 세션 정리 및 로깅
         _cleanup_session_data(state)
         
         end_result = {
@@ -262,9 +229,6 @@ def end_session(state: ChatState) -> Dict[str, Any]:
             }
         }
 
-# ============================================================================
-# F역할 내부 헬퍼 함수들
-# ============================================================================
 
 def _analyze_handoff_reason(state: ChatState) -> str:
     """이관 사유 분석"""
@@ -294,7 +258,6 @@ def _analyze_session_outcome(state: ChatState) -> tuple[str, List[str]]:
     """세션 결과 분석 및 아티팩트 생성"""
     artifacts = []
     
-    # 주문 완료된 경우
     if state.order.get("status") == "confirmed":
         order_id = state.order.get("order_id")
         artifacts.extend([
@@ -303,8 +266,7 @@ def _analyze_session_outcome(state: ChatState) -> tuple[str, List[str]]:
             "주문 요약 PDF"
         ])
         return "order_complete", artifacts
-    
-    # 상담사 이관된 경우  
+      
     elif state.handoff.get("status") == "sent":
         crm_id = state.handoff.get("crm_id")
         artifacts.extend([
@@ -313,7 +275,6 @@ def _analyze_session_outcome(state: ChatState) -> tuple[str, List[str]]:
         ])
         return "handoff_complete", artifacts
     
-    # CS 해결된 경우
     elif state.cs.get("answer", {}).get("confidence", 0) > 0.7:
         artifacts.extend([
             "FAQ 참조 링크",
@@ -321,7 +282,6 @@ def _analyze_session_outcome(state: ChatState) -> tuple[str, List[str]]:
         ])
         return "cs_resolved", artifacts
     
-    # 사용자가 중도 이탈한 경우
     else:
         return "user_exit", []
 
@@ -336,8 +296,7 @@ def _generate_final_message(state: ChatState, end_reason: str) -> str:
     }
     
     base_message = messages.get(end_reason, messages["user_exit"])
-    
-    # 개인화된 메시지 추가
+
     if state.user_id:
         base_message += f"\n\nQook 신선식품을 이용해 주셔서 감사합니다!"
     

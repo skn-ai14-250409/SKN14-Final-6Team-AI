@@ -1,11 +1,3 @@
-"""
-recipe_search.py — 레시피 검색 및 재료 추천 모듈 
-책임:
-- 시나리오 1: 일반 레시피 검색 (Tavily API) 후 사이드바에 결과 URL 표시
-- 시나리오 2: 특정 레시피 선택 시, URL 크롤링 및 LLM을 통한 재료/조리법 추출
-- 추출된 재료를 기반으로 쇼핑몰 상품(SKU)을 DB에서 검색하여 사이드바에 제안
-- 최종 응답 메시지(AIMessage)를 프론트엔드 규격에 맞는 'response' 키로 포맷팅
-"""
 import random
 import logging
 import os
@@ -17,13 +9,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from mysql.connector import Error
 from bs4 import BeautifulSoup
 
-# 프로젝트 루트 경로 추가 (환경에 맞게 조정)
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from graph_interfaces import ChatState
 from config import Config
 
-# 개인맞춤화 정책 임포트
 from policy import (
     get_user_preferences, 
     create_personalized_search_keywords, 
@@ -34,8 +24,8 @@ from policy import (
 )
 
 from utils.chat_history import save_recipe_search_result, generate_alternative_search_strategy
-from nodes.product_search import get_search_engine  # hjs 수정 # 멀티턴 기능
-from utils.db import get_db_connection  # hjs 수정
+from nodes.product_search import get_search_engine 
+from utils.db import get_db_connection  
 
 logger = logging.getLogger("RECIPE_SEARCH")
 
@@ -63,7 +53,7 @@ def recipe_search(state: ChatState) -> Dict[str, Any]:
     query = state.query
 
     try:
-        # 재검색 여부 확인 (안전한 방식)
+
         is_alternative_search = False
         search_strategy = None
         previous_urls = []
@@ -74,9 +64,8 @@ def recipe_search(state: ChatState) -> Dict[str, Any]:
                 is_alternative_search = True
                 logger.info(f"재검색 감지: {search_context.get('intent_scope', 'unknown')}")
 
-                # 대안 검색 전략 생성
                 if search_context.get('previous_dish'):
-                    # 실제 히스토리에서 이전 검색 결과 가져오기
+
                     from utils.chat_history import get_recent_recipe_search_context
                     recent_context = get_recent_recipe_search_context(state, query)
 
@@ -88,7 +77,7 @@ def recipe_search(state: ChatState) -> Dict[str, Any]:
                     previous_search = {
                         "search_query": search_context.get('previous_dish'),
                         "query_type": "specific_dish",
-                        "results": previous_results  # 실제 히스토리 결과 사용
+                        "results": previous_results 
                     }
                     search_strategy = generate_alternative_search_strategy(previous_search, query)
                     previous_urls = search_strategy.get('exclude_urls', [])
@@ -99,7 +88,6 @@ def recipe_search(state: ChatState) -> Dict[str, Any]:
             logger.warning(f"재검색 분석 실패, 기존 방식 사용: {e}")
             is_alternative_search = False
 
-        # 기존 시나리오 분기 (완전 동일)
         if "선택된 레시피:" in query and "URL:" in query:
             logger.info("시나리오 2: 선택된 레시피 재료 추천 시작")
             result = _handle_selected_recipe(query, state)
@@ -107,32 +95,29 @@ def recipe_search(state: ChatState) -> Dict[str, Any]:
             logger.info("시나리오 1: 일반 레시피 검색 시작")
             rewrite_query = state.rewrite.get("text", "")
 
-            # 재검색인 경우 검색 전략 적용
             if is_alternative_search and search_strategy:
                 result = _handle_general_recipe_search_with_history(
                     query, rewrite_query, state, search_strategy, previous_urls
                 )
             else:
-                # 기존 방식 그대로 사용
+
                 result = _handle_general_recipe_search(query, rewrite_query, state)
 
-        # 검색 완료 후 히스토리 저장 (실패해도 무시)
         try:
             recipe_results = result.get("recipe", {}).get("results")
             if recipe_results:
                 logger.info(f"히스토리 저장 대상 레시피: {len(recipe_results)}개")
 
-                # URL 정보 로깅
                 for i, r in enumerate(recipe_results[:3]):
                     logger.info(f"  {i+1}. {r.get('title', 'No title')[:30]}... | URL: {r.get('url', 'No URL')[:50]}...")
 
                 search_context_to_save = {
-                    "query_type": "specific_dish",  # LLM으로 개선 가능
+                    "query_type": "specific_dish", 
                     "original_query": query,
                     "search_query": rewrite_query or query,
                     "results": [
                         {"title": r.get("title", ""), "url": r.get("url", "")}
-                        for r in recipe_results[:3]  # 처음 3개만 저장
+                        for r in recipe_results[:3]
                     ],
                     "search_type": "alternative" if is_alternative_search else "initial"
                 }
@@ -149,7 +134,7 @@ def recipe_search(state: ChatState) -> Dict[str, Any]:
 
     except Exception as e:
         logger.error(f"히스토리 기반 레시피 검색 실패, 기존 방식으로 폴백: {e}", exc_info=True)
-        # 완전 실패 시 기존 방식으로 폴백
+
         try:
             if "선택된 레시피:" in query and "URL:" in query:
                 return _handle_selected_recipe(query, state)
@@ -193,13 +178,11 @@ def _handle_general_recipe_search_with_history(
             recipe_query = base_query
             exclusion_keywords = []
 
-        # Tavily로 외부 레시피 검색 (히스토리 기반)
         recipe_results = _search_with_tavily_filtered(recipe_query, user_preferences, previous_urls)
 
-        # 중복 URL 필터링 결과가 부족한 경우 추가 검색
         if len(recipe_results) < 2 and len(alternative_queries) > 1:
             logger.info("결과 부족으로 추가 대안 쿼리 검색")
-            for alt_query in alternative_queries[1:3]:  # 2-3번째 대안 쿼리 시도
+            for alt_query in alternative_queries[1:3]: 
                 additional_results = _search_with_tavily_filtered(alt_query, user_preferences, previous_urls)
                 recipe_results.extend(additional_results)
                 if len(recipe_results) >= 3:
@@ -330,14 +313,12 @@ def _handle_selected_recipe(query: str, state: ChatState = None) -> Dict[str, An
     all_search_terms = list(set(extracted_ingredients + additional_keywords))
     logger.info(f"DB 검색 키워드: {all_search_terms}")
     
-    matched_products = _get_product_details_from_db(all_search_terms, user_preferences, state)  # hjs 수정 # 멀티턴 기능
+    matched_products = _get_product_details_from_db(all_search_terms, user_preferences, state) 
     
     formatted_recipe_message = _format_recipe_content(structured_content, user_preferences)
     
     logger.info(f"레시피 처리 완료: 재료 {len(all_search_terms)}개, 추천 상품 {len(matched_products)}개")
-    # print("recipe_search.py matched_products:",matched_products)
-    # print("recipe_search.py formatted_recipe_message:",formatted_recipe_message)
-    # print("recipe_search.py structured_content:",structured_content)
+
     return {
         "recipe": {
             "results": [],
@@ -354,7 +335,7 @@ def _get_product_details_from_db(
     user_preferences: Dict[str, Any] = None,
     state: Optional[ChatState] = None
 ) -> List[Dict[str, Any]]:
-    """상품 검색 노드를 활용해 레시피 재료에 맞는 상품을 조회합니다."""  # hjs 수정 # 멀티턴 기능
+    """상품 검색 노드를 활용해 레시피 재료에 맞는 상품을 조회합니다.""" 
     if not ingredient_names:
         return []
 
@@ -363,7 +344,6 @@ def _get_product_details_from_db(
     aggregated_products: List[Dict[str, Any]] = []
     seen_products: set = set()
 
-    # hjs 수정: 중복 제거 및 병렬 검색 준비
     normalized_terms: List[str] = []
     seen_terms = set()
     for raw_term in ingredient_names:
@@ -379,7 +359,7 @@ def _get_product_details_from_db(
     base_session_id = state.session_id if state else None
     history_tail = state.conversation_history[-6:] if state and state.conversation_history else []
 
-    CHUNK_SIZE = 3  # 한 번의 검색에 사용할 재료 수 (hjs 수정)
+    CHUNK_SIZE = 3 
     MAX_WORKERS = min(4, max(1, len(normalized_terms)))
 
     def _chunk_terms(seq: List[str], size: int) -> List[List[str]]:
@@ -396,7 +376,7 @@ def _get_product_details_from_db(
         temp_state.conversation_history = history_tail
 
         try:
-            search_result = search_engine.search_products(temp_state)
+            search_result = search_engine.search_products_multi(temp_state) 
         except Exception as err:
             logger.warning(f"레시피 연동 상품 검색 실패 (terms={chunk_terms}): {err}")
             return []
@@ -432,22 +412,22 @@ def _get_product_details_from_db(
                 })
                 seen_products.add(name)
 
-                if len(aggregated_products) >= 15:
+                if len(aggregated_products) >= 30:
                     break
 
-            if len(aggregated_products) >= 15:
+            if len(aggregated_products) >= 30:
                 break
 
     if aggregated_products:
-        logger.info(f"상품 검색 엔진 기반 추천 {len(aggregated_products)}개 확보")  # hjs 수정 # 멀티턴 기능
+        logger.info(f"상품 검색 엔진 기반 추천 {len(aggregated_products)}개 확보")  
         return aggregated_products
 
-    logger.info("상품 검색 엔진 결과 없음, 기존 DB 조회 폴백 수행")  # hjs 수정 # 멀티턴 기능
+    logger.info("상품 검색 엔진 결과 없음, 기존 DB 조회 폴백 수행") 
     return _legacy_product_details_lookup(ingredient_names, user_preferences)
 
 
 def _passes_user_preferences(product_name: str, user_preferences: Optional[Dict[str, Any]]) -> bool:
-    """사용자 선호/제약 조건을 만족하는지 확인합니다."""  # hjs 수정 # 멀티턴 기능
+    """사용자 선호/제약 조건을 만족하는지 확인합니다.""" 
     if not user_preferences:
         return True
 
@@ -472,7 +452,7 @@ def _passes_user_preferences(product_name: str, user_preferences: Optional[Dict[
 
 
 def _legacy_product_details_lookup(ingredient_names: List[str], user_preferences: Dict[str, Any] = None) -> List[Dict[str, Any]]:
-    """기존 SQL 기반 상품 조회 (폴백용)."""  # hjs 수정 # 멀티턴 기능
+    """기존 SQL 기반 상품 조회 (폴백용)."""  
     conn = get_db_connection()
     if not conn:
         return []
@@ -586,7 +566,6 @@ def _search_with_tavily_filtered(query: str, user_preferences: Dict[str, Any] = 
 
         if user_preferences:
             if user_preferences.get("vegan", False):
-                # meat_exclusions = ["-고기", "-돼지고기", "-소고기", "-닭고기", "-생선", "-육류"]
                 exclusion_terms.extend("+비건")
                 logger.info("비건 사용자 - 검색 쿼리에 +비건 추가")
 
@@ -595,12 +574,6 @@ def _search_with_tavily_filtered(query: str, user_preferences: Dict[str, Any] = 
                 for item in allergy_items:
                     exclusion_terms.append(f"-{item.strip()}")
                 logger.info(f"알러지 기반 제외 키워드 추가: {allergy_items}")
-
-            # if user_preferences.get("unfavorite"):
-            #     unfavorite_items = user_preferences["unfavorite"].split(",")
-            #     for item in unfavorite_items:
-            #         exclusion_terms.append(f"-{item.strip()}")
-            #     logger.info(f"선호도 기반 제외 키워드 추가: {unfavorite_items}")
 
         enhanced_query = f"{query} 레시피 {' '.join(exclusion_terms)}"
 
@@ -611,7 +584,6 @@ def _search_with_tavily_filtered(query: str, user_preferences: Dict[str, Any] = 
         )
 
         search_results_list = search_result.get("results", [])
-        # random.shuffle(search_results_list)
 
         validated_results = []
 
@@ -699,7 +671,6 @@ def _search_with_tavily(query: str, user_preferences: Dict[str, Any] = None) -> 
 
         if user_preferences:
             if user_preferences.get("vegan", False):
-                # meat_exclusions = ["-고기", "-돼지고기", "-소고기", "-닭고기", "-생선", "-육류"]
                 exclusion_terms.extend("+비건")
                 logger.info("비건 사용자 - 검색 쿼리에 +비건 추가")
 
@@ -708,12 +679,6 @@ def _search_with_tavily(query: str, user_preferences: Dict[str, Any] = None) -> 
                 for item in allergy_items:
                     exclusion_terms.append(f"-{item.strip()}")
                 logger.info(f"알러지 기반 제외 키워드 추가: {allergy_items}")
-
-            # if user_preferences.get("unfavorite"):
-            #     unfavorite_items = user_preferences["unfavorite"].split(",")
-            #     for item in unfavorite_items:
-            #         exclusion_terms.append(f"-{item.strip()}")
-            #     logger.info(f"선호도 기반 제외 키워드 추가: {unfavorite_items}")
         
         enhanced_query = f"{query} 레시피 {' '.join(exclusion_terms)}"
         
@@ -724,7 +689,6 @@ def _search_with_tavily(query: str, user_preferences: Dict[str, Any] = None) -> 
         )
         
         search_results_list = search_result.get("results", [])
-        # random.shuffle(search_results_list)
 
         validated_results = []
         
@@ -803,8 +767,8 @@ def _scrape_and_structure_recipe(url: str) -> Optional[Dict[str, Any]]:
         response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()
         
-        soup = BeautifulSoup(response.content, 'lxml') # lxml
-        for t in soup(["script", "style", "noscript"]): # 태그제거
+        soup = BeautifulSoup(response.content, 'lxml') 
+        for t in soup(["script", "style", "noscript"]): 
             t.decompose()
         page_text = soup.get_text(separator='\n', strip=True)
         

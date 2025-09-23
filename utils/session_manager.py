@@ -1,11 +1,3 @@
-"""
-세션별 ChatState 관리 시스템
-
-LangGraph의 State 영속성을 올바르게 활용하기 위한 세션 관리 모듈.
-매 요청마다 새로운 State를 생성하는 대신, 세션별로 State를 메모리에 캐시하여
-대화 맥락을 자동으로 유지합니다.
-"""
-
 from typing import Dict, Optional, List, Tuple
 from datetime import datetime, timedelta
 import logging
@@ -13,7 +5,6 @@ from graph_interfaces import ChatState
 
 logger = logging.getLogger(__name__)
 
-# 세션별 State 캐시 (메모리 기반)
 session_states: Dict[str, ChatState] = {}
 session_last_access: Dict[str, datetime] = {}
 
@@ -34,13 +25,11 @@ def get_or_create_session_state(user_id: str, session_id: str) -> ChatState:
     """
     key = get_session_key(user_id, session_id)
 
-    # 기존 세션이 있으면 반환
     if key in session_states:
         session_last_access[key] = datetime.now()
         logger.info(f"기존 세션 State 반환: {key}, 히스토리 개수: {len(session_states[key].conversation_history)}")
         return session_states[key]
 
-    # 새 세션 생성
     new_state = ChatState(
         user_id=user_id,
         session_id=session_id
@@ -152,7 +141,6 @@ def get_session_statistics() -> Dict[str, int]:
         "average_history_per_session": total_history_items // total_sessions if total_sessions > 0 else 0
     }
 
-# 주기적 세션 정리를 위한 헬퍼 함수
 def schedule_session_cleanup(interval_minutes: int = 10, max_age_minutes: int = 30):
     """
     주기적 세션 정리 스케줄링 (선택적 사용)
@@ -174,7 +162,7 @@ def schedule_session_cleanup(interval_minutes: int = 10, max_age_minutes: int = 
                 time.sleep(interval_minutes * 60)
             except Exception as e:
                 logger.error(f"세션 정리 중 오류: {e}")
-                time.sleep(60)  # 오류 시 1분 후 재시도
+                time.sleep(60) 
 
     cleanup_thread = threading.Thread(target=cleanup_worker, daemon=True)
     cleanup_thread.start()

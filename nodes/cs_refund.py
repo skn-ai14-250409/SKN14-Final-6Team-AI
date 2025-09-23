@@ -137,6 +137,7 @@ def _persist_refund_with_check_atomic(
             )
         conn.commit()
         return True, "OK", final_qty
+    
     except Exception as e:
         try:
             conn.rollback()
@@ -179,7 +180,7 @@ def handle_partial_refund_with_image(
     image_analysis = None
     if state.attachments:
         image_analysis = analyze_attachments(state.attachments)
-        # hjs 수정: 지원되지 않는 파일 유형 안내
+
         if image_analysis and isinstance(image_analysis, dict) and image_analysis.get("error") == "unsupported_type":
             supported = image_analysis.get("supported_types") or ["png","jpg","jpeg","gif","webp"]
             return {
@@ -248,7 +249,7 @@ def handle_partial_refund_with_image(
         return {"cs": {"ticket": ticket_info, "message": polite_message}, "meta": {"next_step": "done"}}
     return {
         "cs": {
-            "message": "이미지를 확인했으나 자동 환불 기준에 부합하지 않아 접수되지 않았어요.\n불편을 드려 죄송합니다. 상담사가 추가로 도와드릴게요.",
+            "message": "이미지를 확인했으나 자동 환불 기준에 부합하지 않아 접수되지 않았어요.\n불편을 드려 죄송합니다. 상담사 연결을 도와드릴까요?",
             "analysis": image_analysis or {},
         },
         "meta": {"next_step": "handoff"},

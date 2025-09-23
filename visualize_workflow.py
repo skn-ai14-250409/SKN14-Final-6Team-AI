@@ -1,9 +1,3 @@
-#!/usr/bin/env python3
-"""
-워크플로우 시각화 스크립트
-conditional_edges로 변환된 LangGraph 워크플로우를 시각화합니다.
-"""
-
 import os
 import sys
 from datetime import datetime

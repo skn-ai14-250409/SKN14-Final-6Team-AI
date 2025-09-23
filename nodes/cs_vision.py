@@ -97,7 +97,7 @@ def analyze_attachments(attachments: List[str]) -> Optional[Dict[str, Any]]:
         return None
     try:
         image_path = attachments[0]
-        # hjs 수정: 업로드 확장자에 따른 MIME 설정(jpg 포함) 및 사전 검증
+
         import os
         ext = os.path.splitext(image_path)[1].lower().lstrip('.')
         mime_map = {
@@ -143,7 +143,6 @@ def analyze_attachments(attachments: List[str]) -> Optional[Dict[str, Any]]:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": [
                     {"type": "text", "text": user_text},
-                    # hjs 수정: 실제 MIME으로 전달(jpg 포함)
                     {"type": "image_url", "image_url": {"url": f"data:{mime_map[ext]};base64,{encoded_image}"}},
                 ]},
             ],

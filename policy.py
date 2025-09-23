@@ -1,12 +1,3 @@
-"""
-policy.py — 개인맞춤화 레시피 추천 정책 관리
-
-책임:
-- 사용자의 allergy, vegan, unfavorite 정보 조회
-- 레시피 검색 및 재료 추천 시 개인맞춤화 필터링 정책 적용
-- 개인 선호도 기반 검색 키워드 생성 및 필터링
-"""
-
 import logging
 from mysql.connector import Error
 from typing import Dict, Any, List, Tuple
@@ -90,19 +81,15 @@ def create_personalized_search_keywords(base_query: str, user_preferences: Dict[
     enhanced_query = base_query
     exclusion_keywords = []
 
-    # 1) 비건: 검색어에 "비건" 붙이기
     if user_preferences.get("vegan", False):
         if "비건" not in enhanced_query:
             enhanced_query = f"{enhanced_query} 비건"
         logger.info("비건 사용자 - positive 키워드 적용 (검색어에 '비건' 추가)")
 
-    # 2) 알러지: 검색어 제외 키워드로만 반영
     if user_preferences.get("allergy"):
         allergy_items = [item.strip() for item in user_preferences["allergy"].split(",")]
         exclusion_keywords.extend(allergy_items)
         logger.info(f"알러지 제외 키워드 추가: {allergy_items}")
-
-    # 3) 비선호: 검색에서는 무시 (재료 단계에서만 반영)
     
     return enhanced_query, exclusion_keywords
 

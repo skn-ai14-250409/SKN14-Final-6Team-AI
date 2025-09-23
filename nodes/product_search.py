@@ -7,8 +7,8 @@ from mysql.connector import Error
 from mysql.connector.pooling import MySQLConnectionPool
 import sys
 from graph_interfaces import ChatState
-from utils.chat_history import summarize_product_search_with_history  # hjs 수정 # 멀티턴 기능
-from utils.db import get_db_connection as get_raw_db_connection  # hjs 수정
+from utils.chat_history import summarize_product_search_with_history 
+from utils.db import get_db_connection as get_raw_db_connection
 from config import Config
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -34,16 +34,14 @@ except ImportError:
     openai_client = None
     logger.warning("OpenAI package not available.")
 
-# --- DB 연결 설정 (환경 변수에서 로드) ---
 DB_CONFIG = {
     'host': os.getenv('DB_HOST', '127.0.0.1'),
     'user': os.getenv('DB_USER', 'qook_user'),
-    'password': os.getenv('DB_PASS', 'qook_pass'),
+    'password': os.getenv('DB_PASSWORD', 'qook_pass'),
     'database': os.getenv('DB_NAME', 'qook_chatbot'),
     'port': int(os.getenv('DB_PORT', 3306))
 }
 
-# --- DB 커넥션 풀 생성 ---
 try:
     db_connection_pool = MySQLConnectionPool(pool_name="qook_pool",
                                             pool_size=5,
@@ -54,7 +52,7 @@ except Error as e:
     logger.error(f"DB 커넥션 풀 생성 실패: {e}")
 
 def _get_connection():
-    """커넥션 풀 우선, 실패 시 공용 헬퍼 사용"""  # hjs 수정
+    """커넥션 풀 우선, 실패 시 공용 헬퍼 사용"""  
     if db_connection_pool:
         try:
             return db_connection_pool.get_connection()
@@ -83,7 +81,6 @@ class ProductSearchEngine:
         self.tfidf_vectorizer = None
         self.tfidf_matrix = None
         self.db_schema = self._get_db_schema()
-        # self._load_data_from_db()
     
     def _get_db_schema(self) -> str:
         return """
@@ -154,27 +151,23 @@ class ProductSearchEngine:
         """
         Text2SQL 또는 RAG를 사용하여 상품을 검색하고, LLM으로 결과를 필터링합니다.
         """
-        # state에서 쿼리와 슬롯을 가져옵니다. 재작성된 텍스트를 우선 사용합니다.
-        # query = state.rewrite.get('text', state.query)
-        # slots = state.slots or {}
-        query = state.rewrite.get('text', state.query)
-        slots = dict(state.slots or {})  # hjs 수정 # 멀티턴 기능
 
-        history_context = summarize_product_search_with_history(state, query)  # hjs 수정 # 멀티턴 기능
+        query = state.rewrite.get('text', state.query)
+        slots = dict(state.slots or {}) 
+
+        history_context = summarize_product_search_with_history(state, query) 
         if history_context.get("has_previous_search"):
             history_slots = history_context.get("last_slots") or {}
-            slots = {**history_slots, **slots}  # hjs 수정 # 멀티턴 기능
+            slots = {**history_slots, **slots} 
 
             if (not query or query.strip() == "") and history_context.get("recent_queries"):
                 query = history_context["recent_queries"][-1]
 
             if history_context.get("recent_candidates") and not state.search.get("candidates"):
-                state.search["candidates"] = history_context["recent_candidates"]  # hjs 수정 # 멀티턴 기능
+                state.search["candidates"] = history_context["recent_candidates"] 
 
-        # hjs 수정: LLM 기반 의미 확장으로 쿼리 보강(하드코딩 매핑 제거)
         query, slots = self._llm_expand_query(query, slots)
 
-        # 1차 검색 수행
         result = None
         if openai_client:
             sql_query = self._generate_sql(query, slots)
@@ -191,19 +184,64 @@ class ProductSearchEngine:
                 logger.info("RAG 검색 성공")
                 result = {"success": True, "candidates": rag_result, "method": "rag"}
 
-        # 2차 LLM 필터링 수행
         if result and result["success"] and result.get("candidates"):
             # logger.info(f"LLM 필터링 전 후보 개수: {len(result['candidates'])}")
-            # # 이를 통해 필터링 함수가 'rewrite'와 'keywords' 정보에 접근할 수 있습니다.
             # filtered_candidates = _filter_products_with_llm(result["candidates"], state, openai_client)
             # logger.info(f"LLM 필터링 후 후보 개수: {len(filtered_candidates)}")
-            # # 필터링된 결과로 업데이트
             # result["candidates"] = filtered_candidates
             result["filtered"] = True
             return result
 
         logger.warning("Text2SQL 및 RAG 검색 모두 실패")
-        # return {"success": False, "candidates": [], "method": "failed", "error": "검색 결과가 없습니다."}
+        
+        return {"success": False, "candidates": [], "method": "failed", "error": "오늘은 해당 상품이 준비되지 않았어요. 다른 상품을 이용해주세요."}
+    
+    def search_products_multi(self, state: ChatState) -> Dict[str, Any]:
+        """
+        Text2SQL 또는 RAG를 사용하여 상품을 검색하고, LLM으로 결과를 필터링합니다.
+        """
+
+        query = state.rewrite.get('text', state.query)
+        slots = {'product': query.split(' '), 'item':  query.split(' ')}
+
+        history_context = summarize_product_search_with_history(state, query)  
+        if history_context.get("has_previous_search"):
+            history_slots = history_context.get("last_slots") or {}
+            slots = {**history_slots, **slots} 
+
+            if (not query or query.strip() == "") and history_context.get("recent_queries"):
+                query = history_context["recent_queries"][-1]
+
+            if history_context.get("recent_candidates") and not state.search.get("candidates"):
+                state.search["candidates"] = history_context["recent_candidates"] 
+
+        query, slots = self._llm_expand_query_multi(query, slots)
+
+        result = None
+        if openai_client:
+            sql_query = self._generate_sql(query, slots)
+            if sql_query:
+                sql_result = self._execute_sql(sql_query)
+                if sql_result:
+                    logger.info("Text2SQL 검색 성공")
+                    result = {"success": True, "candidates": sql_result, "method": "text2sql", "sql_query": sql_query}
+
+        if not result:
+            logger.info("Text2SQL 실패 또는 미사용, RAG 검색으로 전환")
+            rag_result = self._try_rag_search(query, slots)
+            if rag_result:
+                logger.info("RAG 검색 성공")
+                result = {"success": True, "candidates": rag_result, "method": "rag"}
+
+        if result and result["success"] and result.get("candidates"):
+            # logger.info(f"LLM 필터링 전 후보 개수: {len(result['candidates'])}")
+            # filtered_candidates = _filter_products_with_llm(result["candidates"], state, openai_client)
+            # logger.info(f"LLM 필터링 후 후보 개수: {len(filtered_candidates)}")
+            # result["candidates"] = filtered_candidates
+            result["filtered"] = True
+            return result
+
+        logger.warning("Text2SQL 및 RAG 검색 모두 실패")
         return {"success": False, "candidates": [], "method": "failed", "error": "오늘은 해당 상품이 준비되지 않았어요. 다른 상품을 이용해주세요."}
     
     def _generate_sql(self, query: str, slots: Dict[str, Any]) -> Optional[str]:
@@ -410,22 +448,18 @@ SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN s
         return None
     
     def _validate_sql(self, sql: str) -> bool:
-        # hjs 수정: 별칭 사용(p.)까지 허용하도록 검증 강화
+
         sanitized_sql = re.sub(r'\s+', ' ', sql).strip()
         sql_upper = sanitized_sql.upper()
 
-        # 1) SELECT로 시작하는지만 허용
         if not sql_upper.startswith('SELECT'):
             return False
 
-        # 2) 위험 키워드 차단
         dangerous_keywords = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER', 'CREATE']
         if any(keyword in sql_upper for keyword in dangerous_keywords):
             logger.warning("위험한 SQL 키워드 감지")
             return False
 
-        # 3) 대상 테이블 포함 여부 검사: 테이블명(product_tbl) 또는 별칭 접근(p.) 허용
-        #    - LLM이 별칭만 사용하는 정상 쿼리를 허용하기 위함
         has_table_name = 'PRODUCT_TBL' in sql_upper
         has_alias_usage = re.search(r'\bP\.', sql_upper) is not None
         if not (has_table_name or has_alias_usage):
@@ -466,7 +500,6 @@ SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN s
         return self._format_candidates(filtered_candidates[:20])
     
     def _enhance_query(self, query: str, slots: Dict[str, Any]) -> str:
-        # hjs 수정: 간단한 정규화/확장 적용 후 질의 보강
         query, slots = self._expand_terms(query, slots)
         parts = [query]
         if slots.get('category'): parts.append(slots['category'])
@@ -475,13 +508,11 @@ SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN s
         if slots.get('product'): parts.append(slots['product'])
         return ' '.join([str(p) for p in parts if p])
 
-    # hjs 수정: LLM으로 재료/카테고리 의미 확장(하드코딩 없는 방식)
     def _llm_expand_query(self, query: str, slots: Dict[str, Any]) -> (str, Dict[str, Any]):
-        # hjs 수정: OpenAI 미사용 시 즉시 휴리스틱 확장으로 대체
         if not openai_client or not query:
             return self._expand_terms(query, slots)
         try:
-            # hjs 수정: 의미 확장 예시 강화(달걀/계란, 간마늘/다진 마늘, 사과 품종, 소/돼지/닭 부위)
+
             system_prompt = (
                 "당신은 식재료 용어 정규화 전문가입니다. 입력 질의의 핵심 재료를 대표명으로 정규화하고, 같은 부류의 대표 하위 품목 예시를 0~5개 내로 제안합니다. "
                 "출력은 JSON만 반환하세요. 키: canonical_item(대표명), expansions(관련/하위 품목 리스트). 예시: "
@@ -524,50 +555,100 @@ SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN s
             logger.debug(f"LLM 의미 확장 실패: {e}")
             return query, slots
 
-    # hjs 수정: LLM 부재/실패 시 최소한의 휴리스틱 확장(다진 마늘→마늘, 돼지고기→부위 확장)
+    def _llm_expand_query_multi(self, query: str, slots: Dict[str, Any]) -> (str, Dict[str, Any]):
+
+        if not openai_client or not query:
+            return self._expand_terms(query, slots)
+
+        try:
+
+            system_prompt = (
+                "당신은 식재료 용어 정규화 전문가입니다. 입력 질의의 핵심 재료를 대표명으로 정규화하고, 같은 부류의 대표 하위 품목 예시를 0~5개 내로 제안합니다. "
+                "출력은 JSON만 반환하세요. 키: canonical_item(대표명), expansions(관련/하위 품목 리스트). 예시: "
+                "'다진 마늘/간마늘'→ canonical_item='마늘'; '계란/달걀'→ canonical_item='달걀'; '고춧가루/고추가루 → canonical_item='고춧가루';"
+                "'홍사과/청사과/홍로'→ canonical_item='사과'; '돼지고기'→ expansions=['목살','삼겹살','앞다리살','뒷다리살','항정살']; "
+                "'소고기'→ ['등심','안심','양지','우둔','목심','차돌박이']; '닭고기'→ ['닭가슴살','닭다리','닭봉','닭날개']"
+                "입력되는 slots의 형태는 {'product': ['마늘', '사과', '소고기'], 'item': ['마늘', '사과', '소고기']} 입니다. 입력되는 모든 product에 대해 작업을 진행하세요."
+                "입력되는 slots의 product와 item의 리스트의 길이가 3이면 출력되는 slots의 product와 item의 리스트의 길이도 3 이상이여야 합니다."
+            )
+            user_prompt = json.dumps({
+                "query": query,
+                "slots": slots or {},
+                "schema_notes": "product_tbl(product,item,origin,organic,unit_price), category_tbl(item->category_id)"
+            }, ensure_ascii=False)
+            resp = openai_client.chat.completions.create(
+                model=Config.OPENAI_MODEL,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.0,
+                response_format={"type": "json_object"}
+            )
+            data = json.loads(resp.choices[0].message.content)
+            canonical = (data.get("canonical_item") or data.get("canonical") or "").strip()
+            expansions = data.get("expansions") or []
+
+            new_q = query
+            extra_terms = []
+            if canonical:
+                extra_terms.append(canonical)
+            if isinstance(expansions, list):
+                extra_terms.extend([str(x) for x in expansions if x])
+            if extra_terms:
+                new_q = f"{query} {' '.join(extra_terms)}".strip()
+
+            new_slots = dict(slots or {})
+            if canonical and new_slots.get('item'):
+                new_slots['item'] = canonical
+            return new_q, new_slots
+        except Exception as e:
+            logger.debug(f"LLM 의미 확장 실패: {e}")
+            return query, slots
+
     def _expand_terms(self, query: str, slots: Dict[str, Any]) -> (str, Dict[str, Any]):
         try:
             q = (query or '')
             s = dict(slots or {})
             lower_q = q.lower()
-            # 다진 마늘 → 마늘
+
             if '다진 마늘' in q or '다진마늘' in q or 'minced garlic' in lower_q:
                 q += ' 마늘'
                 if s.get('item') and ('마늘' not in s.get('item')):
                     s['item'] = '마늘'
-            # 돼지고기 → 대표 부위 확장
+
             if '돼지고기' in q or 'pork' in lower_q:
                 q += ' 목살 삼겹살 앞다리살 뒷다리살 항정살'
-            # 닭고기 → 대표 부위 확장
+
             if '닭고기' in q or 'chicken' in lower_q:
                 q += ' 닭가슴살 닭다리 닭봉 닭날개'
-            # 소고기 → 대표 부위 확장
+
             if '소고기' in q or 'beef' in lower_q:
                 q += ' 등심 안심 양지 우둔 목심 차돌박이'
-            # 대파 → 파 계열 보강
+
             if '대파' in q:
                 q += ' 파 쪽파'
                 if s.get('item'): s['item'] = '파'
-            # 진간장 → 간장 계열 보강
+
             if '진간장' in q:
                 q += ' 간장 양조간장'
                 if s.get('item'): s['item'] = '간장'
-            # 김치 → 대표 김치 보강
+
             if '김치' in q and '김치찌개' not in q:
                 q += ' 배추김치 포기김치'
-            # 두부 → 유형 보강
+
             if '두부' in q:
                 q += ' 부침두부 찌개두부 연두부'
-            # hjs 수정: 계란 ↔ 달걀 정규화
+
             if '계란' in q and '달걀' not in q:
                 q += ' 달걀'
                 if s.get('item'): s['item'] = '달걀'
             if 'egg' in lower_q and '달걀' not in q:
                 q += ' 달걀'
-            # 고춧가루 → 유사 표기 보강
+
             if '고춧가루' in q:
                 q += ' 고추가루 고추 분말'
-            # 양파 → 변형 보강
+
             if '다진 양파' in q or '다진양파' in q:
                 q += ' 양파'
             return q, s
@@ -659,7 +740,6 @@ def _filter_products_with_llm(
     LLM을 사용하여 사용자의 쿼리와 1차 검색된 상품 목록의 연관성을 판단하고,
     관련 없는 상품들을 정밀하게 필터링합니다.
     """
-    # LLM 클라이언트가 없거나, 필터링할 상품이 1개 이하면 필터링을 건너뜁니다.
     if not llm_client or not products or len(products) <= 1:
         return products
     candidate_info_full = [
@@ -670,13 +750,12 @@ def _filter_products_with_llm(
             "organic": p.get("organic"), 
             "category": p.get("category_text")
         }
-        # get() 메서드의 두 번째 인자로 기본값을 제공하여 키가 없는 경우에도 오류가 발생하지 않도록 합니다.
+
         for p in products
     ]
 
-    # state에서 재작성된 keywords를 가져옵니다. 없으면 빈 리스트를 사용합니다.
     keywords = state.rewrite.get("keywords", [])
-    # 로그에 원본 쿼리 대신 정제된 키워드를 기록합니다.
+
     logger.info(f"LLM 정밀 필터링 시작. Keywords: '{keywords}', Candidates: {[p['name'] for p in products]}")
     system_prompt = """
 당신은 사용자의 쇼핑 쿼리를 다차원적으로 분석하여, 주어진 상품 목록에서 사용자의 실제 의도와 일치하는 상품만을 정확하게 필터링하는 AI 상품 필터링 전문가입니다.
@@ -791,7 +870,6 @@ relevant_products 리스트 외에 다른 설명, 주석, 예시는 절대 포�
 라면사리
 }"""
 
-    # LLM에게 전달할 사용자 프롬프트 생성 (상품 목록 전체 전달)
     user_prompt = f"""
 # 사용자 쿼리
 "{' '.join(keywords)}"

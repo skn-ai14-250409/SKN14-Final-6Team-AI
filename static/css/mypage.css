@@ -1,6 +1,3 @@
-/* 마이페이지 전용 스타일 */
-
-/* 기본 설정 */
 * {
     margin: 0;
     padding: 0;
@@ -12,13 +9,11 @@ body {
     background-color: #f9fafb;
 }
 
-/* 메인 레이아웃 */
 .mypage-container {
     display: flex;
     min-height: calc(100vh - 88px);
 }
 
-/* 왼쪽 사이드바 스타일 */
 .sidebar {
     width: 320px;
     background: linear-gradient(135deg, #10b981 0%, #059669 100%);
@@ -43,7 +38,6 @@ body {
     padding: 2rem;
 }
 
-/* 사용자 프로필 섹션 */
 .user-profile {
     text-align: center;
     margin-bottom: 2rem;
@@ -92,7 +86,6 @@ body {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
-/* 메뉴 리스트 */
 .menu-list {
     display: flex;
     flex-direction: column;
@@ -124,7 +117,6 @@ body {
     text-align: center;
 }
 
-/* 오른쪽 메인 컨텐츠 */
 .main-content {
     flex: 1;
     padding: 3rem;
@@ -139,7 +131,6 @@ body {
     min-height: 400px;
 }
 
-/* 콘텐츠 섹션 공통 스타일 */
 .content-section {
     width: 100%;
     height: 100%;
@@ -154,7 +145,6 @@ body {
     display: block;
 }
 
-/* 환영 화면 스타일 */
 .welcome-message {
     text-align: center;
 }
@@ -172,7 +162,6 @@ body {
     color: #1f2937;
 }
 
-/* 주문내역 스타일 */
 .order-card {
     background: #f9fafb;
     border: 1px solid #e5e7eb;
@@ -204,7 +193,7 @@ body {
     color: #1d4ed8;
 }
 
-/* 배송 추적 스타일 */
+
 .delivery-tracker {
     background: linear-gradient(135deg, #f0fdf4 0%, #eff6ff 100%);
     border: 1px solid #10b981;
@@ -270,7 +259,6 @@ body {
     background: #d1d5db;
 }
 
-/* 채팅 히스토리 스타일 */
 .chat-session {
     background: #f9fafb;
     border: 1px solid #e5e7eb;
@@ -330,7 +318,6 @@ body {
     border: 1px solid #bbf7d0;
 }
 
-/* 레시피 카드 스타일 */
 .recipe-card {
     background: white;
     border: 1px solid #e5e7eb;
@@ -400,7 +387,6 @@ body {
     transform: translateY(-1px);
 }
 
-/* 반응형 디자인 */
 @media (max-width: 1024px) {
     .sidebar {
         width: 280px;
@@ -462,7 +448,6 @@ body {
     }
 }
 
-/* 애니메이션 */
 @keyframes fadeIn {
     from {
         opacity: 0;

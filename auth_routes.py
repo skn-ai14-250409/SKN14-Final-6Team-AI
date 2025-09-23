@@ -1,8 +1,3 @@
-"""
-FastAPI 인증 라우트
-회원가입, 로그인, 로그아웃, 프로필 관리 API
-"""
-
 from fastapi import APIRouter, HTTPException, Depends, Response, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr

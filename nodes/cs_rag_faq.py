@@ -20,12 +20,11 @@ def faq_policy_rag(state) -> Dict[str, Any]:
             logger.info("검색 결과 없음 - DB 폴백으로 이동")
             return _faq_db_fallback(state)
         docs, citations = [], []
-        threshold = 0.4  # 유사도 임계값
+        threshold = 0.4 
         for i, match in enumerate(results.matches):
             md = match.metadata or {}
             score = match.score
 
-            # 임계값 이하 문서는 제외 (로그도 출력하지 않음)
             if score < threshold:
                 continue
 
@@ -34,9 +33,8 @@ def faq_policy_rag(state) -> Dict[str, Any]:
             content = md.get("text", "")
             docs.append(content)
             citations.append(f"{md.get('type','unknown')}:{md.get('category','')}")
-            logger.info(f"내용: {content[:200]}...")  # 내용 일부 로깅
+            logger.info(f"내용: {content[:200]}...") 
 
-        # 임계값을 넘는 문서가 없으면 DB 폴백
         if not docs:
             logger.info(f"임계값 {threshold} 이상인 문서가 없음 - DB 폴백으로 이동")
             return _faq_db_fallback(state)

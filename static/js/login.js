@@ -1,4 +1,3 @@
-// 로그인 폼 처리
 class LoginHandler {
   constructor() {
     this.form = document.getElementById('loginForm');
@@ -48,7 +47,7 @@ class LoginHandler {
         this.showSuccess('로그인 성공! 메인 페이지로 이동합니다...');
         localStorage.setItem('access_token', data.access_token);
         localStorage.setItem('user_info', JSON.stringify(data.user));
-        // hjs 수정: 새 로그인 시 이전 채팅 세션/메시지 초기화
+
         try {
           const uid = (data.user && (data.user.user_id || data.user.id || data.user.uid)) || '';
           if (uid) {
@@ -105,7 +104,6 @@ class LoginHandler {
   }
 }
 
-// 페이지 로드 시 초기화
 document.addEventListener('DOMContentLoaded', () => {
   new LoginHandler();
 });
