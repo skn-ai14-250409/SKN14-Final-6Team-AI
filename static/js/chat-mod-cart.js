@@ -1,4 +1,3 @@
-// hjs 수정: 장바구니/결제 관련 메서드 분리 (ChatCart)
 (function(global){
   'use strict';
   const ChatCart = {
@@ -38,16 +37,16 @@
       return false;
     },
     recalculateAndRedrawCart(bot){
-      // hjs 수정: 프론트 계산 제거, 서버 응답으로만 정합성 유지
+
       ChatCart.syncPendingCartUpdates(bot);
     },
-    // hjs 수정: 장바구니 즉시 동기화(체크아웃 전 강제 적용)
+
     async flushCartToServer(bot){
       try{
-        // 보류 중 업데이트를 합치고, 현재 화면 수량을 기준으로 서버에 강제 반영
+
         const map = Object.assign({}, bot.pendingCartUpdate);
         (Array.isArray(bot.cartState?.items)?bot.cartState.items:[]).forEach(it=>{ map[it.name] = parseInt(it.qty||0,10); });
-        bot.pendingCartUpdate = {}; // 초기화
+        bot.pendingCartUpdate = {}; 
         const headers = { 'Content-Type':'application/json', ...(getCSRFToken()?{'X-CSRFToken':getCSRFToken()}:{}), };
         const promises = Object.entries(map).map(([productName, quantity])=>
           fetch('/api/cart/update', {
@@ -59,9 +58,9 @@
       }catch(e){ console.error('flushCartToServer error', e); }
     },
     optimisticRecalculateAndRedrawCart(bot){
-      // hjs 수정: 프론트에서도 즉시 금액 갱신(낙관적) 후 서버 응답으로 정합성 보정
+
       if (!bot.cartState) return;
-      const resolveMembershipPolicy = (mem = {}) => {  // hjs 수정: 멤버십 등급별 할인/무료배송 정책 보정
+      const resolveMembershipPolicy = (mem = {}) => { 
         const tier = String(mem.membership_name || (mem.meta && mem.meta.membership_name) || '').toLowerCase();
         const policy = {
           premium: { rate: 0.10, threshold: 0 },
@@ -81,19 +80,18 @@
         const rate = Number(policy.rate || 0);
         const freeThr = Number(policy.threshold || 0);
 
-        // hjs 수정: 백엔드(_calculate_totals)와 동일한 규칙으로 계산
         const membershipDiscount = Math.floor(subtotal * rate);
         const effectiveSubtotal = subtotal - membershipDiscount;
         const BASE_SHIPPING = 3000;
 
         bot.cartState.subtotal = subtotal;
-        bot.cartState.shipping_fee = BASE_SHIPPING; // 기본 3000 고정
+        bot.cartState.shipping_fee = BASE_SHIPPING; 
         bot.cartState.discounts = [];
         if (membershipDiscount > 0) {
           bot.cartState.discounts.push({ type: 'membership_discount', amount: membershipDiscount, description: '멤버십 할인' });
         }
         if (effectiveSubtotal >= freeThr) {
-          // 무료배송은 할인으로 3000을 추가하고, shipping_fee는 3000 유지 → 표시 시 0원 처리
+
           bot.cartState.discounts.push({ type: 'free_shipping', amount: BASE_SHIPPING, description: '무료배송' });
         }
         const totalDiscount = (bot.cartState.discounts||[]).reduce((a,b)=>a+(b.amount||0),0);
@@ -112,7 +110,7 @@
       }
       const finalQty = bot.cartState.items[idx]?.qty ?? 0;
       if (finalQty <= 0) bot.cartState.items.splice(idx, 1);
-      // hjs 수정: bot 메서드 의존 제거
+
       ChatCart.optimisticRecalculateAndRedrawCart(bot);
       clearTimeout(bot.debounceTimer);
       bot.pendingCartUpdate[productName] = Math.max(finalQty, 0);
@@ -135,7 +133,7 @@
       }
     },
     updateCart(bot, cart, saveState=true){
-      // hjs 수정: 장바구니 렌더링 책임을 모듈로 이동하여 ChatBot을 경량화했습니다. # 멀티턴 기능
+
       const escapeHtml = (text) => {
         if (bot && typeof bot.escapeHtml === 'function') return bot.escapeHtml(text);
         if (window.UIHelpers && UIHelpers.escapeHtml) return UIHelpers.escapeHtml(text);
@@ -216,7 +214,6 @@
           </button>`;
         list.appendChild(itemDiv);
 
-        // hjs 수정: 선택 유지 및 변경 시 금액을 재계산합니다. # 멀티턴 기능
         const checkbox = itemDiv.querySelector('.cart-select');
         if (previousSelection.has(item.name)) {
           checkbox.checked = true;
@@ -229,7 +226,7 @@
       checkoutButton.classList.remove('hidden');
       ChatCart.recalculateCartTotals(bot, previousSelection);
     },
-    // hjs 수정: 선택된 상품만을 기준으로 금액을 계산합니다. # 멀티턴 기능
+
     recalculateCartTotals(bot, preservedSelection){
       const formatPrice = (price) => {
         if (bot && typeof bot.formatPrice === 'function') return bot.formatPrice(price);
@@ -270,7 +267,7 @@
       }, 0);
 
       const membership = cartState.membership || {};
-      const resolveMembershipPolicy = (mem = {}) => {  // hjs 수정: 멤버십 정책 보정 (무료배송 0 허용)
+      const resolveMembershipPolicy = (mem = {}) => { 
         const tier = String(mem.membership_name || (mem.meta && mem.meta.membership_name) || '').toLowerCase();
         const policy = {
           premium: { rate: 0.10, threshold: 0 },
@@ -316,7 +313,7 @@
     },
     async handleCheckout(bot){
       if (!bot.cartState||!bot.cartState.items||bot.cartState.items.length===0){ alert('장바구니가 비어있습니다.'); return; }
-      // hjs 수정: 체크아웃 전에 반드시 서버 수량과 동기화(낙관 갱신 → 서버 반영)
+
       try{ clearTimeout(bot.debounceTimer); await ChatCart.flushCartToServer(bot); }catch(_){ }
       const selected = ChatCart.getSelectedCartProducts(bot);
       if (selected.length > 0){
@@ -344,7 +341,7 @@
     },
     getSelectedCartProducts(bot){
       const nodes = Array.from(document.querySelectorAll('.cart-select:checked'));
-      // hjs 수정: 선택된 상품명을 반환하여 선택 기반 계산을 지원합니다. # 멀티턴 기능
+
       return nodes.map(n => n.dataset.productName).filter(Boolean);
     },
     async handleRemoveSelected(bot){

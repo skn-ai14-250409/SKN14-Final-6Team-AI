@@ -95,14 +95,13 @@ def ensure_chat_session(user_id: str, session_id: str, status: str = "active") -
         if conn and conn.is_connected():
             conn.close()
 
-# hjs 수정: 활성 세션 타임아웃 처리 (updated_at 기준)
 def timeout_inactive_sessions(minutes: int = 10) -> None:
     conn = _conn()
     if not conn:
         return
     try:
         with conn.cursor() as cur:
-            # 먼저 타임아웃될 세션들의 user_id를 조회
+      
             cur.execute(
                 """
                 SELECT DISTINCT user_id 
@@ -114,7 +113,6 @@ def timeout_inactive_sessions(minutes: int = 10) -> None:
             )
             timeout_user_ids = [row[0] for row in cur.fetchall()]
             
-            # chat_sessions 타임아웃 처리
             cur.execute(
                 """
                 UPDATE chat_sessions
@@ -124,7 +122,6 @@ def timeout_inactive_sessions(minutes: int = 10) -> None:
                 (minutes,)
             )
             
-            # 타임아웃된 사용자들의 userlog_tbl logout_time 업데이트
             for user_id in timeout_user_ids:
                 cur.execute(
                     """
@@ -148,7 +145,6 @@ def timeout_inactive_sessions(minutes: int = 10) -> None:
         if conn and conn.is_connected():
             conn.close()
 
-# hjs 수정: 사용자의 다른 활성 세션을 completed로 마감(채팅 초기화 등)
 def complete_other_sessions(user_id: str, current_session_id: str) -> None:
     conn = _conn()
     if not conn:
@@ -170,7 +166,6 @@ def complete_other_sessions(user_id: str, current_session_id: str) -> None:
         if conn and conn.is_connected():
             conn.close()
 
-# hjs 수정: 사용자의 활성 세션을 일괄 completed 처리(로그아웃/브라우저 종료)
 def complete_sessions_for_user(user_id: str) -> None:
     conn = _conn()
     if not conn:
@@ -201,7 +196,7 @@ def ensure_userlog_for_session(user_id: str, session_id: str) -> str:
         return log_id
     try:
         with conn.cursor() as cur:
-            # 새 세션 생성 전에 이전 활성 세션들의 logout_time 마감 처리
+
             cur.execute(
                 """
                 UPDATE userlog_tbl 
@@ -213,8 +208,7 @@ def ensure_userlog_for_session(user_id: str, session_id: str) -> str:
                 (user_id, log_id)
             )
             previous_sessions_closed = cur.rowcount
-            
-            # 새 로그 세션 생성
+
             cur.execute(
                 """
                 INSERT IGNORE INTO userlog_tbl (log_id, user_id, log_time)
@@ -242,7 +236,7 @@ def finish_userlog_for_user(user_id: str) -> None:
         return
     try:
         with conn.cursor() as cur:
-            # 해당 사용자의 logout_time이 null인 가장 최근 log_id를 찾아서 업데이트
+
             cur.execute(
                 """
                 UPDATE userlog_tbl 
@@ -285,114 +279,6 @@ def insert_history(session_id: str, role: str, text: str) -> None:
         if conn and conn.is_connected():
             conn.close()
 
-
-# hjs 수정: 미사용 함수 주석 처리 (cleanup_old_userlog_records)
-# def cleanup_old_userlog_records(days: int = 7) -> None:
-#     """오래된 NULL logout_time 레코드를 정리하는 배치 함수"""
-#     conn = _conn()
-#     if not conn:
-#         return
-#     try:
-#         with conn.cursor() as cur:
-#             # days일 이상 된 logout_time이 NULL인 레코드들을 자동 마감 처리
-#             cur.execute(
-#                 """
-#                 UPDATE userlog_tbl 
-#                 SET logout_time = DATE_ADD(log_time, INTERVAL 1 DAY)
-#                 WHERE logout_time IS NULL 
-#                 AND log_time < (NOW() - INTERVAL %s DAY)
-#                 """,
-#                 (days,)
-#             )
-#             
-#             cleaned_records = cur.rowcount
-#             if cleaned_records > 0:
-#                 logger.info(f"오래된 userlog 레코드 정리 완료: {cleaned_records}개의 NULL logout_time을 자동 마감 처리")
-#         
-#         conn.commit()
-#     except Error as e:
-#         logger.warning(f"cleanup_old_userlog_records 실패: {e}")
-#     finally:
-#         if conn and conn.is_connected():
-#             conn.close()
-
-
-# hjs 수정: 미사용 함수 주석 처리 (cleanup_orphaned_userlog_records)
-# def cleanup_orphaned_userlog_records() -> None:
-#     """사용자가 삭제된 고아 userlog 레코드들을 정리하는 배치 함수"""
-#     conn = _conn()
-#     if not conn:
-#         return
-#     try:
-#         with conn.cursor() as cur:
-#             # userinfo_tbl에 없는 user_id를 가진 userlog 레코드 삭제
-#             cur.execute(
-#                 """
-#                 DELETE ul FROM userlog_tbl ul
-#                 LEFT JOIN userinfo_tbl ui ON ul.user_id = ui.user_id
-#                 WHERE ui.user_id IS NULL
-#                 """
-#             )
-#             
-#             deleted_records = cur.rowcount
-#             if deleted_records > 0:
-#                 logger.info(f"고아 userlog 레코드 정리 완료: {deleted_records}개의 레코드 삭제")
-#         
-#         conn.commit()
-#     except Error as e:
-#         logger.warning(f"cleanup_orphaned_userlog_records 실패: {e}")
-#     finally:
-#         if conn and conn.is_connected():
-#             conn.close()
-
-
-# hjs 수정: 미사용 함수 주석 처리 (get_userlog_statistics)
-# def get_userlog_statistics() -> Dict[str, Any]:
-#     """userlog_tbl의 통계 정보를 반환하는 함수"""
-#     conn = _conn()
-#     if not conn:
-#         return {}
-#     try:
-#         with conn.cursor(dictionary=True) as cur:
-#             # 전체 통계
-#             cur.execute(
-#                 """
-#                 SELECT 
-#                     COUNT(*) as total_records,
-#                     COUNT(logout_time) as completed_sessions,
-#                     COUNT(*) - COUNT(logout_time) as active_sessions,
-#                     AVG(TIMESTAMPDIFF(MINUTE, log_time, COALESCE(logout_time, NOW()))) as avg_session_minutes
-#                 FROM userlog_tbl
-#                 """
-#             )
-#             stats = cur.fetchone() or {}
-#             
-#             # 최근 7일 통계
-#             cur.execute(
-#                 """
-#                 SELECT 
-#                     DATE(log_time) as date,
-#                     COUNT(*) as daily_logins,
-#                     COUNT(logout_time) as daily_logouts
-#                 FROM userlog_tbl 
-#                 WHERE log_time >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
-#                 GROUP BY DATE(log_time)
-#                 ORDER BY date DESC
-#                 """
-#             )
-#             daily_stats = cur.fetchall()
-#             
-#             stats['daily_statistics'] = daily_stats
-#             return stats
-#             
-#     except Error as e:
-#         logger.warning(f"get_userlog_statistics 실패: {e}")
-#         return {}
-#     finally:
-#         if conn and conn.is_connected():
-#             conn.close()
-
-
 def upsert_chat_state(session_id: str, step: str, route_type: str, query_data: Dict[str, Any], cart_data: Dict[str, Any]) -> None:
     conn = _conn()
     if not conn:
@@ -402,7 +288,7 @@ def upsert_chat_state(session_id: str, step: str, route_type: str, query_data: D
         q_json = json.dumps(query_data or {}, ensure_ascii=False)
         c_json = json.dumps(cart_data or {}, ensure_ascii=False)
         with conn.cursor() as cur:
-            # FK 보장: 부모 세션이 없으면 생성 (user_id NULL 허용)
+
             cur.execute(
                 """
                 INSERT IGNORE INTO chat_sessions (session_id, status, created_at, updated_at)

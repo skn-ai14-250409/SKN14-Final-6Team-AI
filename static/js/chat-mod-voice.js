@@ -1,4 +1,3 @@
-// hjs 수정: 음성 입력/녹음 모듈 (ChatVoice)
 (function(global){
   'use strict';
   const ChatVoice = {
@@ -12,7 +11,7 @@
       if (nowRecording){
         if (micBtn) { micBtn.classList.add('recording'); micBtn.title='녹음 중'; }
         if (cancelBtn) { cancelBtn.classList.remove('hidden'); cancelBtn.classList.add('show'); }
-        if (submitBtn) submitBtn.style.display = 'none'; // 전송버튼 숨김
+        if (submitBtn) submitBtn.style.display = 'none'; 
         if (input) input.setAttribute('disabled','disabled');
         bot.canceled = false;
         const Recog = getSpeechRecognitionCtor();
@@ -23,7 +22,7 @@
         if (bot.mediaRecorder) bot.mediaRecorder.stop();
         if (micBtn) micBtn.classList.remove('recording');
         if (cancelBtn) { cancelBtn.classList.add('hidden'); cancelBtn.classList.remove('show'); }
-        if (submitBtn) submitBtn.style.display = 'flex'; // 전송버튼 표시
+        if (submitBtn) submitBtn.style.display = 'flex'; 
         if (input) input.removeAttribute('disabled');
       }
     },
@@ -55,7 +54,7 @@
       const input = document.getElementById('messageInput');
       if (micBtn) micBtn.classList.remove('recording');
       if (cancelBtn) { cancelBtn.classList.add('hidden'); cancelBtn.classList.remove('show'); }
-      if (submitBtn) submitBtn.style.display = 'flex'; // 전송버튼 복원
+      if (submitBtn) submitBtn.style.display = 'flex'; 
       if (input) input.removeAttribute('disabled');
     },
     startSpeechRecognition(bot, Recog){

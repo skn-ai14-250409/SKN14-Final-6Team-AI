@@ -1,28 +1,22 @@
-// 마이페이지 JavaScript 기능
-
-// 현재 활성화된 메뉴를 추적
 let currentActiveMenu = 'orders';
 let MYPAGE_USER_ID = null;
 
-// DOM이 로드된 후 실행
-// hjs 수정: 탭 통합 환경 가드 — mypage-view가 있을 때만 초기화
 document.addEventListener('DOMContentLoaded', function() {
     console.log('마이페이지(탭) 초기화');
     initializeMenuEvents();
     resolveCurrentUser().then(uid => {
         MYPAGE_USER_ID = uid;
         try { updateWelcomeName(); } catch(_){}
-        // 기본 탭은 외부에서 showContent 호출로 진입하도록 유지
+        
     });
 });
 
-// 메뉴 이벤트 초기화
 function initializeMenuEvents() {
-    // 모든 메뉴 항목에 클릭 효과 추가
+
     const menuItems = document.querySelectorAll('.menu-item');
     menuItems.forEach(item => {
         item.addEventListener('click', function() {
-            // 클릭 효과
+
             this.style.transform = 'translateX(8px) scale(0.98)';
             setTimeout(() => {
                 this.style.transform = 'translateX(4px)';
@@ -31,24 +25,20 @@ function initializeMenuEvents() {
     });
 }
 
-// 메뉴 클릭 시 콘텐츠 전환
 function showContent(contentType) {
     console.log(`메뉴 전환: ${contentType}`);
     
-    // 모든 콘텐츠 섹션 숨기기
     const allSections = document.querySelectorAll('.content-section');
     allSections.forEach(section => {
         section.classList.add('hidden');
         section.classList.remove('active');
     });
     
-    // 선택된 콘텐츠 보이기
     const targetSection = document.getElementById(`content-${contentType}`);
     if (targetSection) {
         targetSection.classList.remove('hidden');
         targetSection.classList.add('active');
-        
-        // 부드러운 애니메이션 효과
+
         targetSection.style.opacity = '0';
         targetSection.style.transform = 'translateY(20px)';
         
@@ -59,28 +49,24 @@ function showContent(contentType) {
         }, 50);
     }
     
-    // 섹션별 데이터 로드
     if (contentType === 'profile') loadUserProfile();
     if (contentType === 'orders') loadOrders();
     if (contentType === 'delivery') loadDeliveries();
     if (contentType === 'chat') loadChatHistory();
     if (contentType === 'recipes') { try { renderSavedRecipes(); } catch(_) {} }
-    
-    // 메뉴 활성화 상태 업데이트
+
     setActiveMenu(contentType);
     currentActiveMenu = contentType;
 }
 
-// 메뉴 활성화 상태 설정
 function setActiveMenu(menuType) {
-    // 모든 메뉴 아이템에서 활성화 상태 제거
+
     const menuItems = document.querySelectorAll('.menu-item');
     menuItems.forEach(item => {
         item.classList.remove('bg-green-600', 'bg-opacity-30');
         item.style.backgroundColor = '';
     });
     
-    // 선택된 메뉴 아이템 활성화
     const activeMenuItem = document.querySelector(`[data-menu="${menuType}"]`);
     if (activeMenuItem) {
         activeMenuItem.style.backgroundColor = 'rgba(34, 197, 94, 0.3)';
@@ -88,17 +74,14 @@ function setActiveMenu(menuType) {
     }
 }
 
-// 회원정보 수정 버튼 클릭
 function editProfile() {
     console.log('회원정보 수정 버튼이 클릭되었습니다.');
     showContent('profile');
 }
 
-// 개인정보 수정 관련 함수들
 function loadUserProfile() {
     console.log('사용자 개인정보 로드');
     
-    // API 호출로 사용자 정보 가져오기
     fetch('/api/profile/get')
         .then(response => response.json())
         .then(data => {
@@ -116,8 +99,7 @@ function loadUserProfile() {
 
 function populateProfileForm(userData) {
     console.log('프로필 폼에 데이터 채우기', userData);
-    
-    // 기본 정보
+
     const fields = {
         'profileUserId': userData.user_id,
         'profileName': userData.name,
@@ -132,15 +114,13 @@ function populateProfileForm(userData) {
         'profileUnfavorite': userData.unfavorite
     };
     
-    // 폼 필드 채우기
     Object.keys(fields).forEach(fieldId => {
         const element = document.getElementById(fieldId);
         if (element && fields[fieldId] !== null && fields[fieldId] !== undefined) {
             element.value = fields[fieldId];
         }
     });
-    
-    // 멤버십 정보 (읽기 전용으로 표시)
+
     const membershipElement = document.getElementById('profileMembership');
     if (membershipElement && userData.membership) {
         const membershipDisplayNames = {
@@ -151,15 +131,13 @@ function populateProfileForm(userData) {
         membershipElement.value = membershipDisplayNames[userData.membership] || userData.membership;
     }
     
-    // 성별 라디오 버튼
     if (userData.gender) {
         const genderRadio = document.querySelector(`input[name="gender"][value="${userData.gender}"]`);
         if (genderRadio) {
             genderRadio.checked = true;
         }
     }
-    
-    // 비건 체크박스
+
     const veganCheckbox = document.getElementById('profileVegan');
     if (veganCheckbox) {
         veganCheckbox.checked = userData.vegan === 1;
@@ -168,8 +146,7 @@ function populateProfileForm(userData) {
 
 function saveProfile() {
     console.log('개인정보 저장 시작');
-    
-    // 폼 데이터 수집 (멤버십 제외)
+
     const formData = {
         name: document.getElementById('profileName').value,
         email: document.getElementById('profileEmail').value,
@@ -184,21 +161,18 @@ function saveProfile() {
         allergy: document.getElementById('profileAllergy').value,
         unfavorite: document.getElementById('profileUnfavorite').value
     };
-    
-    // 필수 필드 검증
+
     if (!formData.name || !formData.email) {
         showNotification('이름과 이메일은 필수 입력 항목입니다.', 'error');
         return;
     }
-    
-    // 이메일 형식 검증
+
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(formData.email)) {
         showNotification('올바른 이메일 형식을 입력해주세요.', 'error');
         return;
     }
-    
-    // API 호출로 정보 저장
+
     fetch('/api/profile/update', {
         method: 'POST',
         headers: {
@@ -210,7 +184,7 @@ function saveProfile() {
     .then(data => {
         if (data.success) {
             showNotification('개인정보가 성공적으로 저장되었습니다.', 'info');
-            // 기존 메뉴로 돌아가기
+
             showContent('orders');
         } else {
             showNotification(data.message || '저장 중 오류가 발생했습니다.', 'error');
@@ -227,7 +201,6 @@ function cancelProfileEdit() {
     showContent('orders');
 }
 
-// 사용자 정보 로드
 function resolveCurrentUser(){
   return fetch('/auth/status', { credentials:'include' })
     .then(r=>r.json())
@@ -238,7 +211,7 @@ function resolveCurrentUser(){
 function updateWelcomeName(){
   const el = document.querySelector('.welcome-name');
   const sidebarEl = document.querySelector('.sidebar-user-name');
-  // 프로필 API에서 이름 가져오기
+
   fetch('/api/profile/get', { credentials:'include' })
     .then(r=>r.json())
     .then(d=>{
@@ -249,7 +222,6 @@ function updateWelcomeName(){
     });
 }
 
-// 사용자 이름 업데이트 (미래 사용)
 function updateUserName(name) {
     const userNameElements = document.querySelectorAll('.user-name, .welcome-name');
     userNameElements.forEach(element => {
@@ -257,7 +229,6 @@ function updateUserName(name) {
     });
 }
 
-// ===== 주문 내역 =====
 async function loadOrders(){
   try{
     const uid = MYPAGE_USER_ID || (await resolveCurrentUser());
@@ -271,7 +242,6 @@ async function loadOrders(){
     if (!list) return;
     if (orders.length === 0){ list.innerHTML = '<div class="text-gray-500">최근 주문 내역이 없습니다.</div>'; return; }
 
-    // 렌더
     list.innerHTML = orders.map(o=>renderOrderCard(o)).join('');
   }catch(e){ console.error('loadOrders error:', e); }
 }
@@ -304,7 +274,6 @@ function renderOrderCard(o){
     </div>`;
 }
 
-// ===== 배송 내역 =====
 async function loadDeliveries(){
   try{
     const uid = MYPAGE_USER_ID || (await resolveCurrentUser());
@@ -343,7 +312,6 @@ function renderDeliveryCard(o){
   </div>`;
 }
 
-// ===== 채팅 히스토리 =====
 async function loadChatHistory(){
   try{
     const uid = MYPAGE_USER_ID || (await resolveCurrentUser());
@@ -365,8 +333,8 @@ async function loadChatHistory(){
     }).sort((a,b)=> b.firstTs.getTime() - a.firstTs.getTime());
 
     const totalSessions = sessionEntries.length;
-    const cardsHtml = sessionEntries.map((session, idx)=>{  // hjs 수정: 세션 카드 UI 생성
-      const summary = formatSessionHeader(session.firstTs);  // hjs 수정: 세션 리스트 요약 레이블
+    const cardsHtml = sessionEntries.map((session, idx)=>{ 
+      const summary = formatSessionHeader(session.firstTs); 
       const detail = session.messages.map(renderChatRow).join('');
       const sessionLabel = `세션 ${totalSessions - idx}`;
       return `
@@ -384,18 +352,18 @@ async function loadChatHistory(){
         </div>`;
     }).join('');
 
-    wrap.innerHTML = `<div class="chat-history-session-list space-y-4">${cardsHtml}</div>`;  // hjs 수정: 요약 리스트 렌더링
+    wrap.innerHTML = `<div class="chat-history-session-list space-y-4">${cardsHtml}</div>`;  
   }catch(e){ console.error('loadChatHistory error:', e); }
 }
 
 function renderChatRow(m){
   const isUser = m.role === 'user';
   const rawText = m.text || '';
-  const text = isUser ? formatUserMessage(rawText) : renderBotMarkdown(rawText);  // hjs 수정: 사용자/봇 메시지 렌더링 분리
+  const text = isUser ? formatUserMessage(rawText) : renderBotMarkdown(rawText);  
   const timeLabel = formatChatTimestamp(m.time);
   const align = isUser ? 'justify-end' : 'justify-start';
   const bubbleClass = isUser ? 'bg-green-600 text-white' : 'bg-white text-gray-800';
-  const timeClass = isUser ? 'text-right text-white opacity-80 font-medium' : 'text-left text-gray-600 font-medium';  // hjs 수정: 시각 색상 대비 개선
+  const timeClass = isUser ? 'text-right text-white opacity-80 font-medium' : 'text-left text-gray-600 font-medium';  
   const avatar = isUser
     ? '<div class="w-8 h-8 rounded-full bg-green-500 text-white flex items-center justify-center ml-3"><i class="fas fa-user"></i></div>'
     : '<div class="w-8 h-8 rounded-full bg-gray-200 text-green-600 flex items-center justify-center mr-3"><i class="fas fa-robot"></i></div>';
@@ -417,7 +385,7 @@ function renderChatRow(m){
 function formatKRW(n){ const v = Math.round(Number(n)||0); return v.toLocaleString('ko-KR'); }
 function escapeHtml(s){ const d=document.createElement('div'); d.textContent=s||''; return d.innerHTML; }
 function formatSessionHeader(date){
-  try {  // hjs 수정: 세션 요약 표시 포맷 개선
+  try {  
     const dt = new Date(date);
     const y = dt.getFullYear();
     const m = String(dt.getMonth() + 1).padStart(2, '0');
@@ -440,11 +408,11 @@ function formatChatTimestamp(value){
   }
 }
 
-function formatUserMessage(text){  // hjs 수정: 사용자 메시지 포맷팅
+function formatUserMessage(text){  
   return escapeHtml(String(text||'')).replace(/\n/g, '<br>');
 }
 
-function renderBotMarkdown(text){  // hjs 수정: 챗봇 답변 Markdown 렌더링
+function renderBotMarkdown(text){  
   const fallback = escapeHtml(String(text||'')).replace(/\n/g, '<br>');
   try {
     if (window.QMarkdown && typeof window.QMarkdown.render === 'function'){
@@ -457,7 +425,6 @@ function renderBotMarkdown(text){  // hjs 수정: 챗봇 답변 Markdown 렌더�
   }
 }
 
-// 이벤트 위임: 주문 상세 & 채팅 상세 토글
 document.addEventListener('click', async (e)=>{
   const btn = e.target.closest('.order-detail-btn');
   if (btn){
@@ -473,7 +440,7 @@ document.addEventListener('click', async (e)=>{
     }catch(err){ console.error('order details error:', err); }
   }
   const chatToggle = e.target.closest('.chat-detail-toggle');
-  if (chatToggle){  // hjs 수정: 채팅 히스토리 상세 토글
+  if (chatToggle){  
     const card = chatToggle.closest('.chat-session-card');
     const detail = card?.querySelector('.chat-session-detail');
     if (!detail) return;
@@ -490,7 +457,6 @@ function renderOrderDetails(d){
   const items = (d.items||[]).map((it, idx)=>{
     const name = escapeHtml(it.product||it.name||'');
     const qty = Number(it.quantity||it.qty||0);
-    // hjs 수정: order_detail_tbl.price는 라인 합계(= 단가*수량)임 → 추가 곱셈 금지
     const lineTotal = Number(it.price||it.unit_price||0);
     const line = Number(lineTotal||0).toLocaleString('ko-KR');
     return `<div class=\"flex justify-between text-sm\"><div>${idx+1}. ${name} × ${qty}</div><div>${line}원</div></div>`;
@@ -511,7 +477,6 @@ function renderOrderDetails(d){
     </div>`;
 }
 
-// 저장한 레시피 렌더
 function renderSavedRecipes(){
   const grid = document.querySelector('#content-recipes .grid');
   if (!grid) return;
@@ -552,7 +517,7 @@ function renderSavedRecipes(){
             </div>
           </div>`;
         }).join('');
-        // hjs 수정: 즐겨찾기 삭제 버튼 주입
+
         try { addSavedRecipeRemoveButtons(); } catch(_){ }
       }).catch(()=>{
         if (!local || local.length===0){ grid.innerHTML = '<div class="text-gray-500">저장한 레시피가 없습니다.</div>'; return; }
@@ -575,13 +540,12 @@ function renderSavedRecipes(){
             </div>
           </div>`;
         }).join('');
-        // hjs 수정: 즐겨찾기 삭제 버튼 주입(로컬)
+
         try { addSavedRecipeRemoveButtons(); } catch(_){ }
       });
   }catch(e){ console.error('renderSavedRecipes error:', e); }
 }
 
-// 저장한 레시피 → 챗봇으로 재료 추천 연결
 document.addEventListener('click', (e)=>{
   const btn = e.target.closest('.saved-recipe-ingredients-btn');
   if (!btn) return;
@@ -600,9 +564,9 @@ URL: ${url}
   if (typeof navigateToPage === 'function') navigateToPage('/chat'); else window.location.href = '/chat';
 });
 
-// hjs 수정: 저장 레시피 카드에 삭제 버튼을 동적으로 삽입
+
 function addSavedRecipeRemoveButtons(){
-  // hjs 수정: 삭제 버튼을 카드 하단 액션이 아닌, 제목/설명 우측(재료 추천받기 버튼 바로 위)로 이동
+
   const grid = document.querySelector('#content-recipes .grid');
   if (!grid) return;
   const cards = grid.querySelectorAll('.bg-white.rounded-lg.shadow-md');
@@ -611,23 +575,19 @@ function addSavedRecipeRemoveButtons(){
     const actions = cardBody ? cardBody.querySelector('.mt-4.flex.items-center.justify-between') : null;
     if (!cardBody || !actions) return;
 
-    // 기존 하단에 있던 삭제 버튼 제거(중복 방지)
     const oldInActions = actions.querySelector('.saved-recipe-remove-btn');
     if (oldInActions) oldInActions.remove();
 
-    // 타이틀/설명 기준 정보 수집
     const titleEl = cardBody.querySelector('h3');
     const descEl = cardBody.querySelector('p.text-gray-600');
     const anchor = actions.querySelector('a[target="_blank"]');
     const url = anchor ? anchor.getAttribute('href') : '';
     const title = titleEl ? titleEl.textContent : '';
 
-    // 삭제 버튼이 포함된 상단 툴바 생성 (액션 영역 바로 위, 우측 정렬)
     let toolbar = cardBody.querySelector('.saved-recipe-toolbar');
     if (!toolbar){
       toolbar = document.createElement('div');
       toolbar.className = 'saved-recipe-toolbar flex items-center justify-end mb-2';
-      // 설명 요소 뒤, 액션 영역 앞에 삽입
       if (descEl && descEl.parentNode === cardBody){
         cardBody.insertBefore(toolbar, actions);
       } else {
@@ -635,7 +595,6 @@ function addSavedRecipeRemoveButtons(){
       }
     }
 
-    // 버튼 생성 및 주입
     if (!toolbar.querySelector('.saved-recipe-remove-btn')){
       const btn = document.createElement('button');
       btn.className = 'saved-recipe-remove-btn border px-3 py-1 rounded hover:bg-gray-50 text-xs';
@@ -648,14 +607,13 @@ function addSavedRecipeRemoveButtons(){
   });
 }
 
-function normalizeRecipeEntry(entry){  // hjs 수정: 즐겨찾기 항목 키 정규화
+function normalizeRecipeEntry(entry){ 
   if (!entry) return { url: '', title: '' };
   const url = (entry.url || entry.recipe_url || '').trim();
   const title = (entry.title || entry.recipe_title || '').trim();
   return { url, title };
 }
 
-// hjs 수정: 즐겨찾기 삭제 처리
 document.addEventListener('click', async (e)=>{
   const btn = e.target.closest('.saved-recipe-remove-btn');
   if (!btn) return;
@@ -668,7 +626,6 @@ document.addEventListener('click', async (e)=>{
       body: JSON.stringify({ user_id: uid, recipe_url: url })
     });
 
-    // hjs 수정: 로컬스토리지에서도 삭제 (chat.js와 동일한 방식)
     const favoritesKey = `favorite_recipes_${uid}`;
     try {
       const localFavorites = JSON.parse(localStorage.getItem(favoritesKey) || '[]');
@@ -686,12 +643,11 @@ document.addEventListener('click', async (e)=>{
     const card = btn.closest('.bg-white.rounded-lg');
     if (card) card.remove();
 
-    if (!gridHasRecipeCards()) {  // hjs 수정: 카드 제거 후 빈 상태 메시지 처리
+    if (!gridHasRecipeCards()) {  
       const grid = document.querySelector('#content-recipes .grid');
       if (grid) grid.innerHTML = '<div class="text-gray-500">저장한 레시피가 없습니다.</div>';
     }
 
-    // hjs 수정: 챗봇 즐겨찾기 목록 실시간 동기화
     try {
       if (window.chatBot && typeof window.chatBot.renderFavorites === 'function') {
         window.chatBot.renderFavorites();
@@ -704,15 +660,14 @@ document.addEventListener('click', async (e)=>{
   }catch(err){ console.error('remove favorite on mypage error', err); showNotification('삭제 중 오류가 발생했습니다.', 'error'); }
 });
 
-// 알림 표시 함수
+
 function showNotification(message, type = 'info') {
-    // 기존 알림이 있으면 제거
+
     const existingNotification = document.querySelector('.notification');
     if (existingNotification) {
         existingNotification.remove();
     }
     
-    // 새 알림 생성
     const notification = document.createElement('div');
     notification.className = `notification notification-${type}`;
     notification.style.cssText = `
@@ -730,7 +685,6 @@ function showNotification(message, type = 'info') {
         font-weight: 500;
     `;
     
-    // 애니메이션 스타일 추가
     if (!document.querySelector('#notification-styles')) {
         const style = document.createElement('style');
         style.id = 'notification-styles';
@@ -762,7 +716,6 @@ function showNotification(message, type = 'info') {
     notification.textContent = message;
     document.body.appendChild(notification);
     
-    // 3초 후 자동 제거
     setTimeout(() => {
         notification.style.animation = 'slideOut 0.3s ease';
         setTimeout(() => {
@@ -773,7 +726,6 @@ function showNotification(message, type = 'info') {
     }, 3000);
 }
 
-// 페이지 전환 효과 (부드러운 로딩)
 function smoothPageTransition(url) {
     document.body.style.opacity = '0.5';
     setTimeout(() => {
@@ -781,9 +733,9 @@ function smoothPageTransition(url) {
     }, 150);
 }
 
-// 키보드 네비게이션 지원
+
 document.addEventListener('keydown', function(event) {
-    // ESC 키로 알림 닫기
+
     if (event.key === 'Escape') {
         const notification = document.querySelector('.notification');
         if (notification) {
@@ -792,23 +744,22 @@ document.addEventListener('keydown', function(event) {
   }
 });
 
-function gridHasRecipeCards(){  // hjs 수정: 즐겨찾기 카드 잔여 여부 확인
+function gridHasRecipeCards(){ 
   const grid = document.querySelector('#content-recipes .grid');
   if (!grid) return false;
   return !!grid.querySelector('.bg-white.rounded-lg');
 }
 
-// 마우스 오버 효과를 위한 추가 이벤트
+
 document.addEventListener('DOMContentLoaded', function() {
     const menuItems = document.querySelectorAll('.menu-item');
     
     menuItems.forEach(item => {
-        // 마우스 진입시
+
         item.addEventListener('mouseenter', function() {
             this.style.transform = 'translateX(8px)';
         });
         
-        // 마우스 떠날 때
         item.addEventListener('mouseleave', function() {
             this.style.transform = 'translateX(0)';
         });

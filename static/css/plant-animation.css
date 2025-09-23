@@ -5,7 +5,6 @@
   margin: 10px 0;
 }
 
-/* 배송 농부 */
 .delivery-farmer {
   position: absolute;
   left: 10px;
@@ -16,7 +15,6 @@
   animation: farmer-appear 1s ease-out 0s forwards;
 }
 
-/* 배송 받을 사람과 집 */
 .house-person {
   position: absolute;
   right: 10px;
@@ -80,7 +78,6 @@
   margin: 0 auto;
 }
 
-/* 배송될 당근 */
 .delivery-carrot {
   position: absolute;
   bottom: 50px;
@@ -119,7 +116,6 @@
 .delivery-carrot .carrot-leaf:nth-child(2) { transform: rotate(0deg); }
 .delivery-carrot .carrot-leaf:nth-child(3) { transform: rotate(10deg); }
 
-/* 배송 경로 점선 */
 .delivery-path {
   position: absolute;
   top: 50%;
@@ -137,7 +133,6 @@
   animation: path-appear 1s ease-out 1.5s forwards;
 }
 
-/* 애니메이션 정의 */
 @keyframes farmer-appear {
   0% { opacity: 0; transform: translateX(-10px) scale(0.8); }
   100% { opacity: 1; transform: translateX(0) scale(1); }

@@ -1,4 +1,3 @@
-// hjs 수정: 이미지 업로드 모듈 (ChatUpload)
 (function(global){
   'use strict';
   const ChatUpload = {

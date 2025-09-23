@@ -38,8 +38,8 @@ def get_user_orders_last_5_days(user_id: str) -> List[Dict[str, Any]]:
             FROM order_tbl o
             WHERE o.user_id = %s
               AND o.order_status IN ('completed','delivered')
-              AND o.order_date > (CURDATE() - INTERVAL 5 DAY)   -- 시작: 오늘-6일 00:00
-              AND o.order_date <  (CURDATE() + INTERVAL 1 DAY)   -- 끝: 내일 00:00 (오늘 포함)
+              AND o.order_date > (CURDATE() - INTERVAL 5 DAY)  
+              AND o.order_date <  (CURDATE() + INTERVAL 1 DAY) 
             ORDER BY o.order_date DESC
             """
             cursor.execute(sql, (user_id,))
@@ -112,7 +112,6 @@ def get_order_details(order_code: str, user_id: Optional[str] = None) -> Dict[st
                 "price": _to_float(r.get("price")),
             })
 
-        # ✅ 수정: DB에서 직접 가져온 값 사용
         db_subtotal = _to_float(order_row.get("subtotal"))
         db_discount_amount = _to_float(order_row.get("discount_amount"))
         db_shipping_fee = _to_float(order_row.get("shipping_fee"))
@@ -128,8 +127,8 @@ def get_order_details(order_code: str, user_id: Optional[str] = None) -> Dict[st
             "subtotal": db_subtotal,
             "discount_amount": db_discount_amount,
             "shipping_fee": db_shipping_fee,
-            "discount": db_discount_amount,  # 호환성을 위해 유지
-            "total": db_total_price,  # 호환성을 위해 유지
+            "discount": db_discount_amount,  
+            "total": db_total_price,
             "items": items,
         }
     except Error as e:

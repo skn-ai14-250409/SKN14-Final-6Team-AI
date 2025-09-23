@@ -1,8 +1,3 @@
-"""
-Django 연동 인증 시스템
-FastAPI와 Django User 모델을 연결하여 회원가입/로그인 처리
-"""
-
 import hashlib
 import uuid
 from datetime import datetime

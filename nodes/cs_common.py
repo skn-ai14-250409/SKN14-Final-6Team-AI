@@ -1,6 +1,3 @@
-"""
-Common utilities and clients shared across CS modules.
-"""
 import os
 import logging
 from decimal import Decimal

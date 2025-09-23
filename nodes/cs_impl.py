@@ -25,7 +25,6 @@ STATUS_LABEL = {
 }
 
 
-
 def _classify_cs_category(query: str, attachments: List[str]) -> str:
 
     q_raw = (query or "").strip()

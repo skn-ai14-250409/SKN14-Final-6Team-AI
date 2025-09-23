@@ -1,6 +1,3 @@
-/* 고정 네비게이션 바 시스템 */
-
-/* 전체 레이아웃 설정 */
 .app-container {
     height: 100vh;
     overflow: hidden;
@@ -8,7 +5,6 @@
     flex-direction: column;
 }
 
-/* 고정 네비게이션 바 */
 .fixed-nav-bar {
     position: fixed;
     top: 0;
@@ -31,7 +27,6 @@
     position: relative;
 }
 
-/* 왼쪽 로고 섹션 */
 .nav-logo {
     display: flex;
     align-items: center;
@@ -49,7 +44,7 @@
     margin-right: 0.75rem;
 }
 
-/* 중앙 네비게이션 버튼 */
+
 .nav-buttons {
     display: flex;
     align-items: center;
@@ -107,7 +102,6 @@
     left: 100%;
 }
 
-/* 우측 액션 버튼들 */
 .nav-actions {
     display: flex;
     align-items: center;
@@ -132,7 +126,6 @@
     background: rgba(255, 255, 255, 0.15);
 }
 
-/* 콘텐츠 영역 */
 .content-area {
     flex: 1;
     margin-top: 80px;
@@ -140,7 +133,6 @@
     overflow: hidden;
 }
 
-/* 페이지 슬라이더 컨테이너 */
 .page-slider {
     display: flex;
     height: 100%;
@@ -155,7 +147,6 @@
     flex-shrink: 0;
 }
 
-/* 페이지별 위치 설정 */
 .page-slider.show-chatbot {
     transform: translateX(0%);
 }
@@ -164,19 +155,16 @@
     transform: translateX(-50%);
 }
 
-/* 슬라이드 전환 효과 */
 .slide-transition {
     transition: transform 0.35s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
-/* 페이지 콘텐츠 래퍼 */
 .page-content-wrapper {
     height: 100%;
     display: flex;
     flex-direction: column;
 }
 
-/* 모바일 반응형 */
 @media (max-width: 768px) {
     .fixed-nav-content {
         padding: 0 1rem;
@@ -200,22 +188,19 @@
     }
 }
 
-
-/* 접근성 개선 */
 .nav-tab:focus,
 .nav-action-btn:focus {
     outline: 2px solid rgba(255, 255, 255, 0.5);
     outline-offset: 2px;
 }
 
-/* 다크모드 대응 */
+
 @media (prefers-color-scheme: dark) {
     .fixed-nav-bar {
         background: linear-gradient(135deg, #065f46 0%, #047857 100%);
     }
 }
 
-/* 고성능 애니메이션을 위한 최적화 */
 .page-slider {
     will-change: transform;
 }

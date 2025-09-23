@@ -1,8 +1,3 @@
-"""
-Kakao 주소 검색 API 연동
-Daum 우편번호 서비스를 사용한 주소 검색 기능
-"""
-
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional

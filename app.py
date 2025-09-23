@@ -169,7 +169,6 @@ async def require_login_for_page(request: Request):
         return RedirectResponse(url=f"/login?next={request.url.path}", status_code=303)
     return user
 
-# (선택) API 전용: 비로그인 시 401
 async def require_login_for_api(request: Request):
     user = await get_current_user(request)
     if not user:
@@ -197,7 +196,7 @@ async def get_chat_page(request: Request):
         if current_user:
             display_name = _get_user_display_name(current_user) or str(current_user)
     except Exception:
-        display_name = str(current_user) # if current_user else None
+        display_name = str(current_user)
     return templates.TemplateResponse("chat.html", {
         "request": request,
         "current_user": current_user,
