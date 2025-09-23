@@ -1,8 +1,7 @@
-/* Markdown theme for bot messages */
 .message-bubble-bot .bot-text {
   font-size: 14px;
   line-height: 1.6;
-  color: #1f2937; /* gray-800 */
+  color: #1f2937; 
 }
 
 .message-bubble-bot .bot-text h1,
@@ -28,7 +27,7 @@
 .message-bubble-bot .bot-text a:hover { color: #1d4ed8; }
 
 .message-bubble-bot .bot-text code {
-  background: #f3f4f6; /* gray-100 */
+  background: #f3f4f6; 
   padding: 0.1rem 0.3rem;
   border-radius: 4px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
@@ -45,7 +44,7 @@
 .message-bubble-bot .bot-text pre code { background: transparent; padding: 0; font-size: 12px; }
 
 .message-bubble-bot .bot-text blockquote {
-  border-left: 3px solid #10b981; /* emerald */
+  border-left: 3px solid #10b981; 
   padding: 0.25rem 0.75rem;
   background: #ecfdf5;
   color: #065f46;

@@ -1,9 +1,3 @@
-/**
- * 회원가입 페이지 JavaScript (단일 <form> 버전)
- * - 스텝 전환/검증/제출
- * - 비밀번호 강도/일치, 이메일 중복, 주소 검색, 전체동의
- */
-
 class RegistrationManager {
   constructor() {
     this.currentStep = 1;
@@ -15,38 +9,30 @@ class RegistrationManager {
     this.updateStepDisplay();
   }
 
-  /* -------------------- 초기화 -------------------- */
   initializeElements() {
-    // 스텝 컨테이너(HTML의 .step-panel)
     this.stepPanels = document.querySelectorAll(".step-panel");
 
-    // 인디케이터/프로그레스바(없어도 동작하도록 null-safe)
     this.stepIndicators = document.querySelectorAll(".step-indicator");
     this.progressBar = document.querySelector(".progress-fill");
 
-    // 폼
     this.form = document.getElementById("registerForm");
 
-    // 스텝 버튼들 (ID는 HTML과 1:1 매칭)
     this.next1Btn = document.getElementById("nextStep1");
     this.next2Btn = document.getElementById("nextStep2");
     this.prev2Btn = document.getElementById("prevStep2");
     this.prev3Btn = document.getElementById("prevStep3");
     this.submitBtn = document.getElementById("submitRegister");
 
-    // 메시지 영역(없으면 조용히 패스)
     this.errorMessage = document.getElementById("errorMessage");
     this.errorText = document.getElementById("errorText");
     this.successMessage = document.getElementById("successMessage");
     this.successText = document.getElementById("successText");
 
-    // 약관
     this.agreeAll = document.getElementById("agreeAll");
     this.agreeTerms = document.getElementById("agreeTerms");
     this.agreePrivacy = document.getElementById("agreePrivacy");
     this.agreeMarketing = document.getElementById("agreeMarketing");
 
-    // 비밀번호/이메일 UI
     this.pwd = document.getElementById("password");
     this.pwd2 = document.getElementById("passwordConfirm");
     this.toggle1 = document.getElementById("togglePassword1");
@@ -57,30 +43,25 @@ class RegistrationManager {
     this.emailCheckBox = document.getElementById("emailCheck");
     this.emailCheckText = document.getElementById("emailCheckText");
 
-    // 기타
     this.phoneInput = document.getElementById("phoneNum");
   }
 
   bindEvents() {
-    // 스텝 이동
+
     this.next1Btn?.addEventListener("click", () => this.goNextFrom(1));
     this.next2Btn?.addEventListener("click", () => this.goNextFrom(2));
     this.prev2Btn?.addEventListener("click", () => this.showPanel(1));
     this.prev3Btn?.addEventListener("click", () => this.showPanel(2));
 
-    // 폼 제출 가로채기 (마지막 스텝)
     this.form?.addEventListener("submit", (e) => {
       e.preventDefault();
       this.handleSubmit();
     });
 
-    // 주소 검색
     document
       .getElementById("searchAddress")
       ?.addEventListener("click", () => this.openAddressSearch());
 
-    // 실시간 유효성/UI
-    // 이메일 형식/중복 검사
     this.emailInput?.addEventListener("blur", () => this.checkEmailDuplicate());
     this.emailInput?.addEventListener("input", () => {
       const v = this.emailInput.value.trim();
@@ -91,7 +72,7 @@ class RegistrationManager {
       } else if (!basicValid || !regexValid) {
         this._setEmailCheck(false, "올바른 이메일 형식을 입력해주세요.");
       } else {
-        // 형식이 유효하면 메시지 숨기고(깜빡임 방지), blur 시 서버 중복 검사 진행
+
         this._setEmailCheck(null);
       }
     });
@@ -102,7 +83,6 @@ class RegistrationManager {
     this.toggle2?.addEventListener("click", () => this.toggleVisibility(this.pwd2));
     this.phoneInput?.addEventListener("input", () => this.formatPhoneNumber());
 
-    // 전체 동의
     this.agreeAll?.addEventListener("change", () => {
       const v = !!this.agreeAll.checked;
       if (this.agreeTerms) this.agreeTerms.checked = v;
@@ -111,7 +91,6 @@ class RegistrationManager {
     });
   }
 
-  /* -------------------- 스텝 전환/표시 -------------------- */
   showPanel(index) {
     this.currentStep = index;
     this.updateStepDisplay();
@@ -119,25 +98,23 @@ class RegistrationManager {
   }
 
   updateStepDisplay() {
-    // 패널 표시/숨김
+
     this.stepPanels?.forEach((p, i) => {
       p.classList.toggle("hidden", i !== this.currentStep - 1);
       p.classList.toggle("active", i === this.currentStep - 1);
     });
 
-    // 인디케이터
     this.stepIndicators?.forEach((el, i) => {
       el.classList.toggle("completed", i + 1 < this.currentStep);
       el.classList.toggle("active", i + 1 === this.currentStep);
     });
 
-    // 프로그레스 채우기
+
     if (this.progressBar) {
       const percent = ((this.currentStep - 1) / (this.totalSteps - 1)) * 100;
       this.progressBar.style.width = `${percent}%`;
     }
 
-    // 버튼 표시 제어 (submit 버튼은 HTML에서 type="submit")
     this.prev2Btn && (this.prev2Btn.style.display = this.currentStep === 2 ? "inline-flex" : "none");
     this.prev3Btn && (this.prev3Btn.style.display = this.currentStep === 3 ? "inline-flex" : "none");
     this.next1Btn && (this.next1Btn.style.display = this.currentStep === 1 ? "inline-flex" : "none");
@@ -148,12 +125,11 @@ class RegistrationManager {
   async goNextFrom(step) {
     if (this.currentStep !== step) return;
     if (await this.validateCurrentStep()) {
-      this.saveFormData(); // 누적 저장
+      this.saveFormData(); 
       this.showPanel(step + 1);
     }
   }
 
-  /* -------------------- 검증 -------------------- */
   async validateCurrentStep() {
     const panel = document.getElementById(`step${this.currentStep}Panel`);
     if (!panel) {
@@ -161,7 +137,6 @@ class RegistrationManager {
       return false;
     }
 
-    // 현재 패널 내 required만 검사 (숨겨진 요소 무시)
     const reqs = panel.querySelectorAll("input[required], select[required], textarea[required]");
     for (const el of reqs) {
       if (el.disabled || el.readOnly) continue;
@@ -174,7 +149,6 @@ class RegistrationManager {
       }
     }
 
-    // 추가 규칙
     if (this.currentStep === 1) {
       if (!(await this.validateStep1())) return false;
     }
@@ -189,12 +163,11 @@ class RegistrationManager {
     return true;
   }
 
-  // 필드 라벨 텍스트 가져오기(placeholder를 사용하지 않음)
   _getFieldLabel(el, scope) {
     const byFor = (el.id && (scope || document).querySelector(`label[for="${el.id}"]`)) || null;
     let text = byFor?.textContent || "";
     if (!text) {
-      // 같은 컨테이너 내 첫 번째 label 우선
+
       const container = el.closest('div');
       text = container?.querySelector('label')?.textContent || "";
     }
@@ -220,7 +193,6 @@ class RegistrationManager {
     if (!password.value.trim()) return this._fail(password, "비밀번호를 입력해주세요.");
     if (!passwordConfirm.value.trim()) return this._fail(passwordConfirm, "비밀번호 확인을 입력해주세요.");
 
-    // hjs 수정: 비밀번호 8자 미만 경고
     if ((password.value || '').length < 8) {
       return this._fail(password, "비밀번호는 8자이상 입력해야합니다.");
     }
@@ -229,13 +201,12 @@ class RegistrationManager {
       return this._fail(passwordConfirm, "비밀번호가 일치하지 않습니다.");
     }
 
-    // 이메일 중복
     const ok = await this.checkEmailDuplicate();
     return ok;
   }
 
   validateStep2() {
-    // 선택값이면 생략 가능. 입력했다면 범위 체크.
+
     const ageEl = document.getElementById("age");
     const hhEl = document.getElementById("houseHold");
 
@@ -286,15 +257,13 @@ class RegistrationManager {
     return false;
   }
 
-  /* -------------------- 유틸/검사 -------------------- */
   async checkEmailDuplicate() {
     const email = this.emailInput?.value?.trim();
     if (!email) {
       this._setEmailCheck(null);
-      return true; // 비어있으면 여기서는 막지 않음
+      return true; 
     }
 
-    // 1) 클라이언트 측 형식 검증 (type="email" + 추가 정규식)
     const basicValid = this.emailInput?.checkValidity?.() ?? true;
     const regexValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
     if (!basicValid || !regexValid) {
@@ -303,17 +272,15 @@ class RegistrationManager {
     }
 
     try {
-      const snapshot = email; // 사용자가 값 변경 시 결과 적용 방지
+      const snapshot = email; 
       const resp = await fetch(`/auth/check-email?email=${encodeURIComponent(email)}`);
       const data = await resp.json();
 
-      // 2) 서버가 형식 부적합을 반환한 경우에도 실패 처리
       if (data && data.valid === false) {
         this._setEmailCheck(false, "올바른 이메일 형식을 입력해주세요.");
         return false;
       }
 
-      // 사용자가 검사 중 값을 바꿨다면 결과 무시
       if ((this.emailInput?.value?.trim() || "") !== snapshot) {
         return true;
       }
@@ -326,7 +293,7 @@ class RegistrationManager {
       return true;
     } catch (e) {
       console.warn("이메일 중복 검사 오류:", e);
-      // 네트워크 오류 시 UI만 초기화하고 진행 허용
+
       this._setEmailCheck(null);
       return true;
     }
@@ -361,7 +328,6 @@ class RegistrationManager {
     if (/\d/.test(v)) score++;
     if (/[^A-Za-z0-9]/.test(v)) score++;
 
-    // 0~5 점수를 0~4개의 바에 매핑
     const colors = ["#ef4444", "#f97316", "#eab308", "#22c55e", "#16a34a"];
     const labels = ["매우 약함", "약함", "보통", "강함", "매우 강함"];
     const idx = Math.max(0, Math.min(score - 1, 4));
@@ -394,20 +360,19 @@ class RegistrationManager {
     el.value = v;
   }
 
-  /* -------------------- 데이터/제출 -------------------- */
   saveFormData() {
     if (!this.form) return;
     const fd = new FormData(this.form);
-    // 기본 필드
+
     for (const [k, v] of fd.entries()) this.formData[k] = v;
-    // 체크박스 (체크 여부)
+
     this.form
       .querySelectorAll('input[type="checkbox"]')
       .forEach((c) => (this.formData[c.name] = !!c.checked));
   }
 
   async handleSubmit() {
-    // 마지막 스텝 검증
+
     const ok = await this.validateCurrentStep();
     if (!ok) return;
 
@@ -416,7 +381,7 @@ class RegistrationManager {
   }
 
   getCSRFToken() {
-    // Django CSRF 토큰 쿠키에서 가져오기
+
     const m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
     return m ? decodeURIComponent(m[1]) : null;
   }
@@ -458,9 +423,8 @@ class RegistrationManager {
     }
   }
 
-  /* -------------------- 주소 검색 -------------------- */
   openAddressSearch() {
-    // daum.Postcode가 전역에 로드되어 있어야 함
+
     new daum.Postcode({
       oncomplete: (data) => {
         const fullAddress = data.roadAddress || data.jibunAddress || "";
@@ -476,7 +440,6 @@ class RegistrationManager {
     }).open();
   }
 
-  /* -------------------- 로딩/메시지 -------------------- */
   setLoading(loading) {
     [this.next1Btn, this.next2Btn, this.prev2Btn, this.prev3Btn, this.submitBtn].forEach((b) => {
       if (!b) return;
@@ -505,7 +468,7 @@ class RegistrationManager {
       this.successMessage?.classList.add("hidden");
       this.errorMessage.scrollIntoView({ behavior: "smooth", block: "center" });
     } else {
-      // 메시지 영역이 없으면 alert로 폴백
+
       console.warn("[Register] ", message);
     }
   }
@@ -527,11 +490,9 @@ class RegistrationManager {
   }
 }
 
-/* -------------------- 부팅 -------------------- */
 document.addEventListener("DOMContentLoaded", () => {
   window.registrationManager = new RegistrationManager();
 
-  // 진행 중 이탈 방지(선택)
   window.addEventListener("beforeunload", (e) => {
     const m = window.registrationManager;
     if (m && m.currentStep > 1 && m.currentStep < 3) {

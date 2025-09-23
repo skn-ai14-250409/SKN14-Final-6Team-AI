@@ -1,8 +1,7 @@
-// hjs 수정: 상품 목록/페이지네이션/정렬 모듈 (ChatProducts)
 (function(global){
   'use strict';
   const ChatProducts = {
-    // hjs 수정: 상품 정렬/페이지네이션 헬퍼를 모듈로 이동했습니다. # 멀티턴 기능
+
     sortProducts(products, sortBy){
       if (!Array.isArray(products) || products.length === 0) return products || [];
       const sortedProducts = products.slice();
@@ -144,7 +143,7 @@
         renderItemCallback: function(product){
           const card = document.createElement('div');
           card.className = 'product-card';
-          // hjs 수정: 템플릿 문자열 대신 구형 호환 문자열 결합으로 구성
+
           var html = ''
             + '<div class="product-info">'
             +   '<h4 class="font-medium text-sm text-gray-800">'+UIHelpers.escapeHtml(product.name)+'</h4>'
@@ -179,7 +178,7 @@
               });
               var data = await res.json();
               if (data && data.cart && typeof bot.updateCart === 'function') bot.updateCart(data.cart, true);
-              // hjs 수정: 담기 확인 메시지 출력
+
               try { bot.addMessage(UIHelpers.escapeHtml(product.name)+'을 장바구니에 담았습니다.', 'bot'); } catch(_) {}
             } catch(err){ console.error('add-to-cart error', err); }
             finally { if (typeof bot.hideCustomLoading === 'function') bot.hideCustomLoading(); }

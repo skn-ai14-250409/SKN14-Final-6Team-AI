@@ -1,5 +1,3 @@
-"""공통 DB 연결 헬퍼"""
-
 import os
 import logging
 import mysql.connector
@@ -9,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 
 def _build_db_config() -> dict:
-    """환경 변수를 기반으로 DB 접속 정보를 생성합니다."""  # hjs 수정
+    """환경 변수를 기반으로 DB 접속 정보를 생성합니다.""" 
     password = os.getenv("DB_PASSWORD") or os.getenv("DB_PASS") or "qook_pass"
     config = {
         "host": os.getenv("DB_HOST", "127.0.0.1"),
@@ -28,10 +26,10 @@ def _build_db_config() -> dict:
 
 
 def get_db_connection():
-    """mysql.connector를 사용해 DB 커넥션을 반환합니다."""  # hjs 수정
+    """mysql.connector를 사용해 DB 커넥션을 반환합니다."""  
     config = _build_db_config()
     try:
         return mysql.connector.connect(**config)
-    except Error as exc:  # hjs 수정
+    except Error as exc:  
         logger.error(f"DB 연결 실패: {exc}")
         return None

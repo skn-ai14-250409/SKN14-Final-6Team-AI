@@ -10,19 +10,17 @@
   }
   
   async function selectMembership(name){
-    // localStorage와 쿠키 둘 다 확인
+
     const localToken = localStorage.getItem('access_token');
     const cookieToken = getCookie('access_token');
     const userIdCookie = getCookie('user_id');
     const token = localToken || cookieToken;
     
-    // 디버깅용 로그
     console.log('localStorage token:', localToken ? 'exists' : 'not found');
     console.log('Cookie token:', cookieToken ? 'exists' : 'not found');
     console.log('User ID cookie:', userIdCookie ? 'exists' : 'not found');
     console.log('Final token:', token ? 'exists' : 'not found');
     
-    // 로그인 상태 확인 (토큰 또는 user_id 쿠키가 있으면 로그인된 것으로 판단)
     if (!token && !userIdCookie) {
       console.log('No authentication found - returning auth error');
       return { 
@@ -42,9 +40,8 @@
       body: JSON.stringify({ membership: name })
     });
     
-    // 401 Unauthorized 응답 처리
     if (res.status === 401) {
-      localStorage.removeItem('access_token'); // 만료된 토큰 제거
+      localStorage.removeItem('access_token'); 
       return { 
         success: false, 
         isAuthError: true,
@@ -81,17 +78,16 @@
       try{
         setFeedback('선택을 적용 중입니다...', 'info');
         const result = await selectMembership(btn.dataset.name);
-        console.log('selectMembership 결과:', result); // 디버깅 로그 추가
+        console.log('selectMembership 결과:', result); 
         if (result && result.success){
           if (result.message) {
-            // 이미 적용된 멤버십인 경우
+
             setFeedback(result.message, 'info');
           } else {
-            // 새로운 멤버십이 적용된 경우
+
             let countdown = 5;
             const box = document.getElementById('feedback');
-            
-            // 당근 배송 애니메이션과 함께 카운트다운
+
             box.className = 'mt-6 p-3 rounded';
             box.classList.remove('hidden');
             box.innerHTML = `
@@ -99,7 +95,6 @@
                 <div class="mb-4 text-gray-700 text-lg font-semibold">멤버십이 적용되었습니다. ${countdown}초 후 챗봇으로 이동합니다.</div>
                 <div class="flex justify-center">
                   <div class="delivery-scene">
-                    <!-- 농부 (기존 farmer 스타일 재사용) -->
                     <div class="delivery-farmer farmer">
                       <div class="hat"></div>
                       <div class="face">
@@ -110,7 +105,6 @@
                       <div class="body"></div>
                     </div>
                     
-                    <!-- 집과 사람 -->
                     <div class="house-person">
                       <div class="house">
                         <div class="house-door"></div>
@@ -121,10 +115,8 @@
                       </div>
                     </div>
                     
-                    <!-- 배송 경로 -->
                     <div class="delivery-path"></div>
                     
-                    <!-- 배송되는 당근 -->
                     <div class="delivery-carrot">
                       <div class="carrot-body"></div>
                       <div class="carrot-leaves">
@@ -152,18 +144,18 @@
             }, 1000);
           }
         } else if (result && result.isAuthError) {
-          // 인증 오류인 경우 로그인 페이지로 리다이렉트
+
           let countdown = 5;
           const updateMessage = () => {
             setFeedback(result.detail + ` ${countdown}초 후에 로그인 페이지로 넘어갑니다.`, 'error');
           };
           
-          updateMessage(); // 초기 메시지 표시
+          updateMessage(); 
           
           const countdownTimer = setInterval(() => {
             countdown--;
             if (countdown > 0) {
-              // 메시지만 업데이트 (애니메이션 유지)
+
               const messageDiv = document.querySelector('#feedback .text-center > div:first-child');
               if (messageDiv) {
                 messageDiv.textContent = result.detail + ` ${countdown}초 후에 로그인 페이지로 넘어갑니다.`;
@@ -177,7 +169,7 @@
           setFeedback(result?.detail||'적용에 실패했습니다.', 'error');
         }
       }catch(err){ 
-        console.error('멤버십 선택 오류:', err); // 디버깅 로그 추가
+        console.error('멤버십 선택 오류:', err); 
         setFeedback('네트워크 오류가 발생했습니다.', 'error'); 
       }
     }, { once:false });
@@ -189,7 +181,6 @@
     box.innerHTML='';
     if (!msg) return;
     
-    // 인증 오류 시 당근 애니메이션 추가
     if (type === 'error' && msg.includes('회원만 사용할 수 있는 기능입니다')) {
       box.innerHTML = `
         <div class="text-center">
@@ -239,7 +230,6 @@
         </div>
       `;
       
-      // 1초마다 당근 뽑기
       for (let i = 1; i <= 5; i++) {
         setTimeout(() => {
           const plant = document.getElementById(`plant-${i}`);
@@ -251,9 +241,9 @@
     }
     
     box.classList.remove('hidden');
-    // 당근 애니메이션일 때는 배경색과 테두리 없음
+
     if (type === 'error' && msg.includes('회원만 사용할 수 있는 기능입니다')) {
-      // 스타일 없음 (투명 배경)
+
     } else if (type==='success') {
       box.classList.add('bg-green-50','text-green-700','border','border-green-200');
     } else if (type==='error') {

@@ -10,7 +10,7 @@
     <link href="/static/css/landing.css" rel="stylesheet">
 </head>
 <body class="bg-gray-50">
-    <!-- 헤더 -->
+
     <header class="bg-white shadow-sm">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between items-center py-4">
@@ -43,7 +43,6 @@
         </div>
     </header>
 
-    <!-- 히어로 섹션 -->
     <section class="fresh-gradient py-20">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="lg:grid lg:grid-cols-2 lg:gap-8 items-center">
@@ -114,8 +113,6 @@
     </div>
     </section>
 
-
-    <!-- 기능 섹션 -->
     <section id="features" class="py-20 bg-white">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="text-center mb-16">
@@ -191,7 +188,6 @@
         </div>
     </section>
 
-    <!-- 사용방법 섹션 -->
     <section id="how-it-works" class="py-20 bg-gray-50">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="text-center mb-16">
@@ -251,7 +247,6 @@
         </div>
     </section>
 
-    <!-- 통계 섹션 -->
     <section class="py-20 bg-green-600">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="grid grid-cols-1 md:grid-cols-4 gap-8 text-center">
@@ -275,7 +270,6 @@
         </div>
     </section>
 
-    <!-- 푸터 -->
     <footer class="bg-gray-900 text-white py-12">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="grid grid-cols-1 md:grid-cols-4 gap-8">
@@ -327,14 +321,12 @@
         </div>
     </footer>
 
-    <!-- JavaScript -->
     <script src="/static/js/landing.js"></script>
     
-    <!-- 인증 관련 JavaScript -->
     <script>
         async function logout() {
             try {
-                // 로컬 토큰/유저 정보 및 채팅 기록 제거
+
                 const u = JSON.parse(localStorage.getItem('user_info')||'{}');
                 const uid = u.user_id || '';
                 localStorage.removeItem('access_token');
@@ -344,7 +336,6 @@
                   localStorage.removeItem(`chat_session_${uid}`);
                   localStorage.removeItem(`chat_pending_message_${uid}`);
                 }
-                // 쿠키 기반 로그아웃(Authorization 헤더 없이 동작)
                 const response = await fetch('/auth/logout-beacon', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },

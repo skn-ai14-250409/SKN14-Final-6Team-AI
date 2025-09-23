@@ -1,32 +1,15 @@
-"""
-router_clarify.py — A팀: 라우터 & 명확화 (개선 버전)
-
-A팀의 책임:
-- LLM 기반 의도 라우팅 (상품검색, 레시피, 장바구니 관리, CS 등 세분화)
-- 저신뢰도/모호한 상황에서 명확화 질문 생성
-- 라우팅 신뢰도 기록 및 메트릭 수집
-"""
-
 import logging
 import os
 import json
 from typing import Dict, Any
-
-# 상대 경로로 graph_interfaces 임포트
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from graph_interfaces import ChatState
-from utils.chat_history import build_global_context_snapshot  # hjs 수정 # 멀티턴 기능
+from utils.chat_history import build_global_context_snapshot
 from config import Config
 
 logger = logging.getLogger("A_ROUTER_CLARIFY")
 
-# hjs 수정: LLM 기반 부적절 감지 전환으로 키워드 리스트 미사용
-# PROFANITY_KEYWORDS = [
-#     "욕", "씨발", "꺼져", "개새", "미친", "시발", "좆", "fuck", "shit"
-# ]
-
-# OpenAI 클라이언트 설정
 try:
     import openai
     openai_api_key = os.getenv("OPENAI_API_KEY")
@@ -46,25 +29,24 @@ def router_route(state: ChatState) -> Dict[str, Any]:
     """
     logger.info(f"라우팅 프로세스 시작: \"{state.query}\"")
     try:
-        history_snapshot = build_global_context_snapshot(state, state.query)  # hjs 수정 # 멀티턴 기능
+        history_snapshot = build_global_context_snapshot(state, state.query) 
         enriched_request = {
             "query": state.query,
             "history": history_snapshot,
             "recent_messages": state.conversation_history[-6:]
-        }  # hjs 수정 # 멀티턴 기능
+        } 
 
-        routing_method = "llm" if openai_client else "keyword"  # hjs 수정: 부적절 감지용 메타 유지
+        routing_method = "llm" if openai_client else "keyword" 
 
         if openai_client:
             try:
-                route_result = _llm_routing_with_history(state.query, enriched_request)  # hjs 수정 # 멀티턴 기능
+                route_result = _llm_routing_with_history(state.query, enriched_request)
             except Exception as history_error:
                 logger.warning(f"히스토리 기반 라우팅 실패, 기존 방식 사용: {history_error}")
                 route_result = _llm_routing(state.query)
         else:
             route_result = _keyword_routing(state.query)
         
-        # hjs 수정: popular_products는 product_search로 일원화
         if route_result.get('target') == 'popular_products':
             route_result['target'] = 'product_search'
             route_result['reason'] = (route_result.get('reason') or '') + ' (popular→product_search 일원화)'
@@ -73,10 +55,10 @@ def router_route(state: ChatState) -> Dict[str, Any]:
             f"Confidence={route_result['confidence']:.2f}, Reason={route_result['reason']}"
         )
 
-        if _is_inappropriate_reason(route_result.get("reason")):  # hjs 수정: LLM 기반 부적절 발언 감지
-            prior_count = int(state.meta.get("profanity_count", 0) or 0)  # hjs 수정
-            profanity_count = prior_count + 1  # hjs 수정
-            state.meta["profanity_count"] = profanity_count  # hjs 수정: 메타 누적 보존
+        if _is_inappropriate_reason(route_result.get("reason")): 
+            prior_count = int(state.meta.get("profanity_count", 0) or 0)  
+            profanity_count = prior_count + 1 
+            state.meta["profanity_count"] = profanity_count  
             route_result = {
                 **route_result,
                 "target": "clarify",
@@ -115,7 +97,7 @@ def router_route(state: ChatState) -> Dict[str, Any]:
         }
 
 def _llm_routing(query: str) -> Dict[str, Any]:
-    """LLM 기반 의도 분류 (hjs 수정: CS 하위타입 세분화 - cs_intake / faq_policy_rag)"""
+    """LLM 기반 의도 분류"""
     
     system_prompt = """
     당신은 신선식품 쇼핑몰의 고객 의도를 분석하는 전문가입니다.
@@ -192,7 +174,7 @@ def _llm_routing(query: str) -> Dict[str, Any]:
         
         result = json.loads(content)
         return {
-            # hjs 수정: LLM이 cs를 반환하면 기본 cs_intake로 보정
+           
             "target": result.get("target", "clarify"),
             "confidence": float(result.get("confidence", 0.5)),
             "reason": result.get("reason", "")
@@ -263,7 +245,7 @@ def _llm_routing_with_history(query: str, context_payload: Dict[str, Any]) -> Di
     {"target": "분류된 카테고리", "confidence": 0.0-1.0, "reason": "분류 이유"}
     """
 
-    history_json = json.dumps(context_payload, ensure_ascii=False)  # hjs 수정 # 멀티턴 기능
+    history_json = json.dumps(context_payload, ensure_ascii=False) 
     user_prompt = f'사용자 입력: "{query}"\n\n최근 맥락 정보(JSON): {history_json}'
 
     response = openai_client.chat.completions.create(
@@ -274,13 +256,13 @@ def _llm_routing_with_history(query: str, context_payload: Dict[str, Any]) -> Di
         ],
         temperature=0.1,
         max_tokens=180,
-        response_format={"type": "json_object"}  # hjs 수정 # 멀티턴 기능
+        response_format={"type": "json_object"} 
     )
 
     try:
         content = (response.choices[0].message.content or "").strip()
         if not content:
-            raise ValueError("empty history routing response")  # hjs 수정 # 멀티턴 기능
+            raise ValueError("empty history routing response")  
         result = json.loads(content)
     except Exception as e:
         logger.warning(f"히스토리 라우팅 파싱 실패: {e}")
@@ -299,16 +281,14 @@ def _llm_routing_with_history(query: str, context_payload: Dict[str, Any]) -> Di
     }
 
 def _keyword_routing(query: str) -> Dict[str, Any]:
-    """키워드 기반 폴백 라우팅 (hjs 수정: FAQ/정책 → faq_policy_rag로 직접 매핑)"""
+    """키워드 기반 폴백 라우팅"""
     
     query_lower = query.lower()
     
-    # 각 의도별 키워드 정의 (우선순위가 높은 순서대로)
     intent_keywords = {
-        # hjs 수정: 정책/약관/규정/FAQ는 faq_policy_rag로 최우선 라우팅
+
         "faq_policy_rag": ["약관", "이용 약관", "규정", "정책", "faq", "환불 규정", "환불규정", "개인정보", "처리방침"],
         "handoff": ["상담원", "상담사", "사람", "직원"],
-        # hjs 수정: 일반 CS는 cs_intake로 직접 라우팅 (이전 'cs' 제거)
         "cs_intake": ["주문내역", "주문 내역", "주문내역확인", "주문 내역 확인", "문의", "문제", "환불", "교환", "취소", "배송", "고장", "불량"],
         "checkout": ["결제", "주문하기", "구매하기", "계산"],
         "cart_remove": ["빼줘", "빼기", "제거", "삭제"],
@@ -316,20 +296,16 @@ def _keyword_routing(query: str) -> Dict[str, Any]:
         "cart_view": ["장바구니", "카트", "담은 거", "목록"],
         "vision_recipe": ["이미지", "사진", "이거 어떻게", "이 요리", "음식 사진"],
         "recipe_search": ["레시피", "요리법", "만들기", "뭐 먹지", "끓이는 법"],
-        # hjs 수정: 인기/베스트 및 구매 의사(사고싶다) 관련 키워드를 product_search로 흡수
         "product_search": ["찾아", "검색", "있어?", "얼마", "가격", "추천", "인기상품", "베스트", "많이 팔린", "인기있는", "인기", "베스트셀러", "사고싶", "사고 싶"]
     }
 
-    # 가장 구체적인 의도부터 확인
     for intent, keywords in intent_keywords.items():
         if any(keyword in query_lower for keyword in keywords):
             return {"target": intent, "confidence": 0.7, "reason": f"'{keywords[0]}' 키워드 감지"}
 
-    # 아무 키워드도 해당되지 않으면 clarify
     return {"target": "clarify", "confidence": 0.3, "reason": "명확한 의도 키워드 불분명"}
 
 
-# clarify 함수는 기존과 동일하게 유지됩니다.
 def clarify(state: ChatState) -> Dict[str, Any]:
     """
     Clarify(모호/무결과 상황 질의)
@@ -347,12 +323,12 @@ def clarify(state: ChatState) -> Dict[str, Any]:
         }
     
     clarify_reason = state.route.get("reason")
-    if _is_inappropriate_reason(clarify_reason):  # hjs 수정: reason 기반 부적절 발언 대응
-        prior_count = int(state.meta.get("profanity_count", 0) or 0)  # hjs 수정: 누적 조회
-        profanity_count = prior_count if prior_count else 1  # hjs 수정: 최소 1 보정
-        state.meta["profanity_count"] = profanity_count  # hjs 수정: state 메타 유지
-        logger.info(f"Profanity_count = {profanity_count}")  # hjs 수정
-        if profanity_count >= 2:  # hjs 수정: 반복 시 경고 강화
+    if _is_inappropriate_reason(clarify_reason):  
+        prior_count = int(state.meta.get("profanity_count", 0) or 0)  
+        profanity_count = prior_count if prior_count else 1 
+        state.meta["profanity_count"] = profanity_count  
+        logger.info(f"Profanity_count = {profanity_count}")  
+        if profanity_count >= 2: 
             warning = "부적절한 표현이 반복되어 상담을 종료합니다. 정중한 표현으로 다시 문의해주세요."
         else:
             warning = "부적절한 표현은 삼가 주세요. 도움이 필요하시면 말씀해 주세요."
@@ -376,12 +352,8 @@ def clarify(state: ChatState) -> Dict[str, Any]:
 
 def _is_inappropriate_reason(reason: Any) -> bool:
     reason_text = str(reason or "")
-    return "부적절 발언 감지" in reason_text  # hjs 수정: LLM reason 기반 판별
+    return "부적절 발언 감지" in reason_text  
 
-# hjs 수정: 키워드 기반 부적절 감지 제거
-# def _contains_profanity(text: str) -> bool:
-#     lowered = text.lower()
-#     return any(keyword in lowered for keyword in PROFANITY_KEYWORDS)
 
 def _generate_clarify_questions(state: ChatState) -> list:
     """상황별 명확화 질문 생성"""

@@ -1,10 +1,3 @@
-"""
-vision_recipe.py — 비전 AI 기반 레시피 검색 모듈
-책임:
-- 이미지를 분석하여 만들어진 음식인지 판단
-- 음식 이름을 추출하여 레시피 검색용 데이터 생성
-- query_enhancement와 동일한 형식으로 데이터 구조화
-"""
 import logging
 import os
 import base64
@@ -12,13 +5,11 @@ import json
 from typing import Dict, Any, Optional
 import sys
 
-# 프로젝트 루트 경로 추가
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from graph_interfaces import ChatState
 
 logger = logging.getLogger("VISION_RECIPE")
 
-# OpenAI 클라이언트 설정
 try:
     import openai
     openai_api_key = os.getenv("OPENAI_API_KEY")
@@ -42,7 +33,7 @@ def vision_recipe(state: ChatState) -> Dict[str, Any]:
         }
 
     try:
-        # 이미지 데이터 확인 (단순화된 로직)
+
         image_data = _extract_image_from_state(state)
         if not image_data:
             return {
@@ -50,7 +41,6 @@ def vision_recipe(state: ChatState) -> Dict[str, Any]:
                 "response": "이미지를 찾을 수 없습니다. 이미지를 다시 업로드해 주세요."
             }
 
-        # 이미지 분석으로 음식 인식
         food_analysis = _analyze_food_image(image_data)
         if not food_analysis or not food_analysis.get("is_food"):
             return {
@@ -67,10 +57,9 @@ def vision_recipe(state: ChatState) -> Dict[str, Any]:
 
         logger.info(f"음식 인식 완료: {food_name}")
 
-        # query_enhancement와 동일한 형식으로 데이터 생성 및 라우팅
         enhanced_data = _create_recipe_query_data(food_name, food_analysis)
         enhanced_data["route"] = {"target": "recipe_search", "confidence": 0.9}
-        enhanced_data["food_analysis"] = food_analysis # API 응답에서 사용할 수 있도록 전달
+        enhanced_data["food_analysis"] = food_analysis 
 
         return enhanced_data
 
@@ -88,7 +77,6 @@ def _extract_image_from_state(state: ChatState) -> Optional[str]:
     """
     if hasattr(state, 'image') and state.image and 'base64,' in state.image:
         logger.info("state.image에서 base64 이미지 데이터 발견")
-        # "data:image/jpeg;base64," 부분을 제외한 순수 base64 데이터만 반환
         return state.image.split(',')[1]
     
     logger.warning("state.image에서 유효한 base64 이미지 데이터를 찾을 수 없음")
@@ -165,6 +153,6 @@ def _create_recipe_query_data(food_name: str, food_analysis: Dict[str, Any]) -> 
         },
         "slots": {
             "dish_name": food_name,
-            "ingredients": food_analysis.get("ingredients", [])[:5] # 최대 5개
+            "ingredients": food_analysis.get("ingredients", [])[:5] 
         }
     }

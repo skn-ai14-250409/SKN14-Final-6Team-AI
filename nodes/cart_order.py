@@ -1,8 +1,3 @@
-"""
-cart_order.py — D팀: 카트 & 주문 (DB 연동 최종 버전, 배송비 중복 계산 수정)
-- FIX 1: order_process()에서 subtotal을 state.cart["subtotal"] 또는 아이템 합계로 계산(배송비/할인 미포함)
-- FIX 2: _calculate_totals()의 무료배송 기준을 "할인 후 금액"으로 일치, 할인액은 int()로 계산해 스냅샷과 동일화
-"""
 import logging
 import uuid
 from datetime import datetime

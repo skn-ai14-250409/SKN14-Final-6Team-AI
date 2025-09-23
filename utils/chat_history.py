@@ -1,32 +1,9 @@
-"""
-대화 히스토리 관리 유틸리티
-
-히스토리 메시지 포맷:
-{
-    "role": "user" | "assistant",
-    "content": "메시지 내용",
-    "timestamp": "2025-01-20T10:30:00Z",
-    "message_type": "text" | "recipe_request" | "emotional" | "casual",
-    "emotion": "happy" | "sad" | "angry" | "stressed" | "neutral",
-    "intent": "casual_chat" | "recipe_search" | "product_search"
-}
-
-사용자 컨텍스트 포맷:
-{
-    "current_mood": "stressed",
-    "recent_topics": ["친구 싸움", "스트레스"],
-    "preferred_food_types": ["매운음식", "따뜻한음식"],
-    "conversation_theme": "emotional_support"
-}
-"""
-
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 import logging
 import json
 import os
 
-# ChatState import 추가
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -35,7 +12,6 @@ from config import Config
 
 logger = logging.getLogger(__name__)
 
-# OpenAI 클라이언트 설정
 try:
     import openai
     openai_api_key = os.getenv("OPENAI_API_KEY")
@@ -70,8 +46,7 @@ def add_to_history(state: ChatState, role: str, content: str, **metadata) -> Non
 
     logger.info(f"Added to memory history [{len(state.conversation_history)} total]: {role} - {content[:50]}...")
 
-    # 히스토리 길이 자동 관리 (메모리 효율성)
-    if len(state.conversation_history) > 20:  # 약간의 버퍼 제공
+    if len(state.conversation_history) > 20: 
         manage_history_length(state, max_messages=15)
 
 
@@ -87,7 +62,7 @@ def manage_history_length(state: ChatState, max_messages: int = 15) -> None:
         메모리에서 직접 히스토리를 관리하여 토큰 수 제한과 메모리 효율성 확보
     """
     if len(state.conversation_history) > max_messages:
-        # 최근 메시지만 유지 (메모리에서 직접 처리)
+
         trimmed_count = len(state.conversation_history) - max_messages
         state.conversation_history = state.conversation_history[-max_messages:]
 
@@ -121,7 +96,6 @@ def get_contextual_analysis(history: List[Dict], current_query: str) -> Dict[str
             "context_summary": "새로운 대화 시작"
         }
 
-    # LLM 기반 맥락 분석 시도
     if openai_client:
         return get_contextual_analysis_llm(history, current_query)
     else:
@@ -187,7 +161,7 @@ followup_intent 설명:
                 {"role": "user", "content": user_prompt}
             ],
             max_tokens=300,
-            temperature=0.2  # 더 일관된 응답을 위해 temperature 낮춤
+            temperature=0.2 
         )
 
         result_text = response.choices[0].message.content.strip()
@@ -195,7 +169,6 @@ followup_intent 설명:
         try:
             result = json.loads(result_text)
 
-            # 빈 히스토리 상황에서 응답 검증 및 강제 수정
             if is_empty_history:
                 if result.get("previous_recommendations") and len(result["previous_recommendations"]) > 0:
                     logger.warning(f"빈 히스토리인데 previous_recommendations가 존재함: {result['previous_recommendations']} -> [] 강제 수정")
@@ -222,7 +195,7 @@ followup_intent 설명:
 
 def get_contextual_analysis_fallback(history: List[Dict], current_query: str) -> Dict[str, Any]:
     """폴백 맥락 분석 (키워드 기반)"""
-    # 최근 봇 메시지에서 추천 내역 추출
+
     previous_recommendations = []
     conversation_theme = "general"
 
@@ -231,7 +204,6 @@ def get_contextual_analysis_fallback(history: List[Dict], current_query: str) ->
         if msg["role"] == "assistant"
     ]
 
-    # 간단한 키워드 기반 추천 내역 추출
     for content in recent_bot_messages:
         content_lower = content.lower()
         if any(keyword in content_lower for keyword in ["스프", "수프", "soup"]):
@@ -242,7 +214,6 @@ def get_contextual_analysis_fallback(history: List[Dict], current_query: str) ->
             if "바질" in content_lower:
                 previous_recommendations.append("바질수프")
 
-        # 기타 음식 카테고리들
         food_keywords = {
             "라면": ["라면", "면", "noodle"],
             "김치찌개": ["김치찌개", "찌개"],
@@ -254,7 +225,6 @@ def get_contextual_analysis_fallback(history: List[Dict], current_query: str) ->
             if any(k in content_lower for k in keywords):
                 previous_recommendations.append(food)
 
-    # 후속 의도 파악
     query_lower = current_query.lower()
     followup_intent = "none"
 
@@ -265,7 +235,6 @@ def get_contextual_analysis_fallback(history: List[Dict], current_query: str) ->
     elif any(pattern in query_lower for pattern in ["뭐", "어떤", "what", "?"]):
         followup_intent = "clarification"
 
-    # 대안 제안
     suggested_alternatives = []
     if "스프" in query_lower or "수프" in query_lower:
         suggested_alternatives = ["옥수수수프", "크림수프", "버섯수프", "호박수프"]
@@ -275,7 +244,7 @@ def get_contextual_analysis_fallback(history: List[Dict], current_query: str) ->
         suggested_alternatives = ["삼겹살", "갈비", "불고기", "스테이크"]
 
     return {
-        "previous_recommendations": list(set(previous_recommendations)),  # 중복 제거
+        "previous_recommendations": list(set(previous_recommendations)), 
         "conversation_theme": conversation_theme,
         "followup_intent": followup_intent,
         "suggested_alternatives": suggested_alternatives,
@@ -295,7 +264,7 @@ def analyze_user_emotion(query: str, history: List[Dict]) -> Dict[str, Any]:
 def analyze_user_emotion_llm(query: str, history: List[Dict]) -> Dict[str, Any]:
     """LLM을 사용한 동적 감정 분석"""
     try:
-        # 최근 대화 맥락 구성
+
         recent_context = get_recent_context(history, turns=3) if history else "새로운 대화"
 
         system_prompt = """
@@ -344,7 +313,6 @@ def analyze_user_emotion_llm(query: str, history: List[Dict]) -> Dict[str, Any]:
 
         result_text = response.choices[0].message.content.strip()
 
-        # JSON 파싱 시도
         try:
             result = json.loads(result_text)
             logger.info(f"LLM emotion analysis: {result}")
@@ -401,7 +369,6 @@ def extract_context_from_history(history: List[Dict], current_query: str) -> str
         if msg["role"] == "user"
     ]
 
-    # 간단한 키워드 기반 맥락 추출
     context_keywords = {
         "친구": "친구 관계",
         "싸움": "갈등 상황",
@@ -614,21 +581,18 @@ def update_user_context(state, emotion_analysis: Dict[str, Any]) -> None:
     if not hasattr(state, 'user_context'):
         state.user_context = {}
 
-    # 현재 감정 상태 업데이트
     state.user_context["current_mood"] = emotion_analysis["primary_emotion"]
 
-    # 최근 주제 업데이트
     if "recent_topics" not in state.user_context:
         state.user_context["recent_topics"] = []
 
     context = emotion_analysis["context"]
     if context and context not in state.user_context["recent_topics"]:
         state.user_context["recent_topics"].append(context)
-        # 최근 5개만 유지
+
         if len(state.user_context["recent_topics"]) > 5:
             state.user_context["recent_topics"] = state.user_context["recent_topics"][-5:]
 
-    # 대화 테마 설정
     if emotion_analysis["primary_emotion"] in ["sad", "stressed", "angry"]:
         state.user_context["conversation_theme"] = "emotional_support"
     elif emotion_analysis["primary_emotion"] == "happy":
@@ -638,12 +602,6 @@ def update_user_context(state, emotion_analysis: Dict[str, Any]) -> None:
 
     logger.info(f"Updated user context: {state.user_context}")
 
-
-# 파일 I/O 기반 함수들 제거됨 (2025-01-16)
-# 이제 conversation_history는 ChatState에서 메모리 기반으로 자동 관리됨
-# utils/session_manager.py의 get_or_create_session_state()를 통해 영속성 확보
-
-# ===== 레시피 검색 히스토리 관리 (ChatState.user_context 기반) =====
 
 def save_recipe_search_result(state: ChatState, search_context: Dict[str, Any]) -> None:
     """
@@ -661,17 +619,14 @@ def save_recipe_search_result(state: ChatState, search_context: Dict[str, Any]) 
             - cuisine_type: LLM이 분석한 요리 유형 (선택사항)
     """
     try:
-        # user_context 초기화
+
         if "recipe_search_history" not in state.user_context:
             state.user_context["recipe_search_history"] = []
 
-        # 타임스탬프 추가
         search_context["timestamp"] = datetime.now().isoformat()
 
-        # 히스토리에 추가
         state.user_context["recipe_search_history"].append(search_context)
 
-        # 최대 5개만 유지 (메모리 효율성)
         if len(state.user_context["recipe_search_history"]) > 5:
             state.user_context["recipe_search_history"] = state.user_context["recipe_search_history"][-5:]
 
@@ -708,9 +663,8 @@ def get_recent_recipe_search_context(state: ChatState, current_query: str) -> Di
                 "context_summary": "이전 레시피 검색 기록 없음"
             }
 
-        most_recent = history[-1]  # 가장 최근 검색
+        most_recent = history[-1]
 
-        # LLM을 사용한 연관성 분석 (사용 가능한 경우)
         if openai_client:
             related_searches = _analyze_search_relatedness_llm(history, current_query)
         else:
@@ -812,12 +766,10 @@ def generate_alternative_search_strategy(previous_search: Dict[str, Any], curren
         }
 
 
-# ===== LLM 기반 분석 함수들 =====
-
 def _analyze_search_relatedness_llm(history: List[Dict], current_query: str) -> List[Dict]:
     """LLM을 사용하여 검색 연관성 분석"""
     try:
-        # 최근 3개 검색만 분석 (토큰 효율성)
+
         recent_history = history[-3:]
 
         system_prompt = """
@@ -881,18 +833,16 @@ def _analyze_search_relatedness_fallback(history: List[Dict], current_query: str
     related = []
     current_lower = current_query.lower()
 
-    # 간단한 키워드 매칭으로 연관성 판단
-    for search in history[-3:]:  # 최근 3개만
+    for search in history[-3:]: 
         search_query = search.get("search_query", "").lower()
 
-        # 완전 일치 (동일 음식)
         if search_query in current_lower or current_lower in search_query:
             related.append({
                 "search_query": search.get("search_query", ""),
                 "relatedness_score": 0.9,
                 "relation_type": "same_dish"
             })
-        # 부분 일치 (관련 카테고리)
+
         elif any(word in current_lower for word in search_query.split()):
             related.append({
                 "search_query": search.get("search_query", ""),
@@ -965,7 +915,6 @@ def _analyze_search_intent_fallback(search_context: Dict, current_query: str) ->
     recent_search = search_context["most_recent_search"]
     query_lower = current_query.lower()
 
-    # 재검색 키워드 감지
     alternative_keywords = ["다른", "또", "별의", "새로운", "다시", "말고", "else", "other", "another"]
     is_alternative = any(keyword in query_lower for keyword in alternative_keywords)
 
@@ -978,7 +927,6 @@ def _analyze_search_intent_fallback(search_context: Dict, current_query: str) ->
             "search_strategy": "INITIAL_SEARCH"
         }
 
-    # 동일 음식 vs 다른 메뉴 판단
     previous_dish = recent_search.get("search_query", "")
     dish_in_query = previous_dish.lower() in query_lower if previous_dish else False
 
@@ -1053,7 +1001,6 @@ JSON 형식으로만 응답:
         result_text = response.choices[0].message.content.strip()
         result = json.loads(result_text)
 
-        # exclude_urls 추가
         result["exclude_urls"] = exclude_urls
 
         logger.info(f"LLM 대안 전략 생성: {result.get('strategy_type', 'unknown')}")
@@ -1069,7 +1016,6 @@ def _generate_alternative_strategy_fallback(previous_search: Dict, current_query
     previous_query = previous_search.get("search_query", "")
     exclude_urls = [result.get("url", "") for result in previous_search.get("results", [])]
 
-    # 간단한 수정자 추가
     modifiers = ["간단한", "쉬운", "매콤한", "전통", "집에서 만드는", "특별한"]
     alternative_queries = [f"{modifier} {previous_query}" for modifier in modifiers[:3]]
 
@@ -1093,7 +1039,6 @@ def _generate_context_summary(most_recent: Dict, related_searches: List, current
         return f"최근 '{recent_dish}' 검색, 현재 질문과 연관성 낮음"
 
 
-# hjs 수정: 도메인 전반에서 재사용 가능한 히스토리 헬퍼 추가 # 멀티턴 기능
 def get_recent_messages_by_intents(state: ChatState, intents: List[str], limit: int = 5) -> List[Dict[str, Any]]:
     """지정된 intent 목록에 해당하는 최근 메시지 추출"""
     history = getattr(state, "conversation_history", [])
@@ -1116,12 +1061,12 @@ def summarize_product_search_with_history(state: ChatState, current_query: str, 
     recent_queries = [msg.get("content", "") for msg in recent_messages]
 
     last_slots = {}
-    recent_candidates: List[Dict[str, Any]] = []  # hjs 수정 # 멀티턴 기능
+    recent_candidates: List[Dict[str, Any]] = []
     for msg in reversed(recent_messages):
         slots = msg.get("slots") or {}
         if slots and not last_slots:
             last_slots = slots
-        search_payload = msg.get("search") or {}  # hjs 수정 # 멀티턴 기능
+        search_payload = msg.get("search") or {}  
         if search_payload.get("candidates") and not recent_candidates:
             recent_candidates = search_payload.get("candidates")
 
@@ -1140,7 +1085,7 @@ def summarize_cart_actions_with_history(state: ChatState, limit: int = 5) -> Dic
     recent_actions = get_recent_messages_by_intents(state, intents, limit)
 
     normalized_actions = []
-    last_cart_snapshot: Dict[str, Any] = {}  # hjs 수정 # 멀티턴 기능
+    last_cart_snapshot: Dict[str, Any] = {} 
     for action in recent_actions:
         normalized_actions.append({
             "intent": action.get("intent"),
@@ -1152,7 +1097,7 @@ def summarize_cart_actions_with_history(state: ChatState, limit: int = 5) -> Dic
         if not last_cart_snapshot and action.get("cart"):
             last_cart_snapshot = action.get("cart")
         if action.get("meta") and action["meta"].get("added_items"):
-            last_cart_snapshot.setdefault("last_added_items", action["meta"].get("added_items"))  # hjs 수정 # 멀티턴 기능
+            last_cart_snapshot.setdefault("last_added_items", action["meta"].get("added_items")) 
 
     last_action = normalized_actions[-1] if normalized_actions else None
 
