@@ -7,8 +7,19 @@ document.addEventListener('DOMContentLoaded', function() {
     resolveCurrentUser().then(uid => {
         MYPAGE_USER_ID = uid;
         try { updateWelcomeName(); } catch(_){}
-        
     });
+    const menuItems = document.querySelectorAll('.menu-item');
+
+    menuItems.forEach(item => {
+
+      item.addEventListener('mouseenter', function() {
+          this.style.transform = 'translateX(8px)';
+      });
+      
+      item.addEventListener('mouseleave', function() {
+          this.style.transform = 'translateX(0)';
+      });
+  });
 });
 
 function initializeMenuEvents() {
@@ -750,20 +761,5 @@ function gridHasRecipeCards(){
   return !!grid.querySelector('.bg-white.rounded-lg');
 }
 
-
-document.addEventListener('DOMContentLoaded', function() {
-    const menuItems = document.querySelectorAll('.menu-item');
-    
-    menuItems.forEach(item => {
-
-        item.addEventListener('mouseenter', function() {
-            this.style.transform = 'translateX(8px)';
-        });
-        
-        item.addEventListener('mouseleave', function() {
-            this.style.transform = 'translateX(0)';
-        });
-    });
-});
 
 console.log('마이페이지 JavaScript가 로드되었습니다.');
