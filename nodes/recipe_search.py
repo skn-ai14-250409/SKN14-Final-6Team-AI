@@ -408,7 +408,8 @@ def _get_product_details_from_db(
                     'name': name,
                     'price': float(candidate.get('price') or 0.0),
                     'origin': candidate.get('origin') or '정보 없음',
-                    'organic': bool(candidate.get('organic')) if candidate.get('organic') is not None else False
+                    'organic': bool(candidate.get('organic')) if candidate.get('organic') is not None else False,
+                    'category': candidate.get('category') or '기타'  # 추가: 카테고리 필드
                 })
                 seen_products.add(name)
 
