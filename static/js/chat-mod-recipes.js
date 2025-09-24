@@ -20,8 +20,8 @@
       if (!hasAnySignal) { if (recipesSection) recipesSection.classList.add('hidden'); return; }
 
       if (Array.isArray(ingredients) && ingredients.length > 0) {
-        bot.productCandidates = ingredients.map(i => ({ name: i.name, origin: i.origin || '원산지 정보 없음', price: i.price || 0, organic: !!i.organic }));
-        bot.productPage = 0; bot.productSortBy = 'popular';
+        bot.productCandidates = ingredients.map(i => ({ name: i.name, origin: i.origin || '원산지 정보 없음', price: i.price || 0, organic: !!i.organic, category: i.category || '기타' })); // 추가: category 필드
+        bot.productPage = 0; bot.productSortBy = 'popular'; bot.selectedCategory = '전체'; // 추가: 카테고리 초기화
         const productsSection = document.getElementById('productsSection');
         productsSection.classList.remove('hidden');
         const productTitle = productsSection.querySelector('h3');

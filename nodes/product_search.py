@@ -336,60 +336,60 @@ class ProductSearchEngine:
 예시 1:
 사용자 쿼리: "사과 찾아줘"
 사고 과정: '사과'라는 상품을 찾는 요청 -> product_tbl에서 상품명(product) 또는 품목(item)에 '사과'가 포함된 항목 검색 -> 가격, 원산지, 재고 정보 함께 조회
-SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product WHERE p.product LIKE '%사과%' OR p.item LIKE '%사과%';
+SELECT p.product, p.unit_price, p.origin, s.stock, p.item FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product WHERE p.product LIKE '%사과%' OR p.item LIKE '%사과%';
 
 예시 2:
 사용자 쿼리: "3000원 이하 과일 추천해줘"
 사고 과정: 가격 조건(3000원 이하) + 카테고리(과일=1) -> product_tbl과 category_tbl 조인 -> p.item과 c.item을 연결 -> 가격 조건 적용
-SELECT DISTINCT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product LEFT JOIN category_tbl c ON p.item = c.item WHERE CAST(p.unit_price AS UNSIGNED) <= 3000 AND c.category_id = 1;
+SELECT DISTINCT p.product, p.unit_price, p.origin, s.stock, p.item FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product LEFT JOIN category_tbl c ON p.item = c.item WHERE CAST(p.unit_price AS UNSIGNED) <= 3000 AND c.category_id = 1;
 
 예시 3:
 사용자 쿼리: "유기농 채소 있어?"
 사고 과정: 유기농(organic='Y') + 채소(category_id=2) -> product_tbl의 organic 필드와 category_tbl 조인
-SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product LEFT JOIN category_tbl c ON p.item = c.item WHERE p.organic = 'Y' AND c.category_id = 2;
+SELECT p.product, p.unit_price, p.origin, s.stock, p.item FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product LEFT JOIN category_tbl c ON p.item = c.item WHERE p.organic = 'Y' AND c.category_id = 2;
 
 예시 4:
 사용자 쿼리: "재고 많은 상품 보여줘"
 사고 과정: 재고량 기준 정렬 -> stock_tbl의 stock 컬럼으로 내림차순 정렬
-SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product ORDER BY CAST(s.stock AS UNSIGNED) DESC LIMIT 10;
+SELECT p.product, p.unit_price, p.origin, s.stock, p.item FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product ORDER BY CAST(s.stock AS UNSIGNED) DESC LIMIT 10;
 
 ## 고급 및 개인화 검색 예시
 
 예시 5 (인기 상품):
 사용자 쿼리: "요즘 제일 잘 나가는 상품이 뭐야?"
 사고 과정: 인기 상품은 장바구니 추가 횟수(cart_add_count)가 높은 상품 -> product_tbl의 cart_add_count를 기준으로 내림차순 정렬
-SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product ORDER BY p.cart_add_count DESC LIMIT 5;
+SELECT p.product, p.unit_price, p.origin, s.stock, p.item FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product ORDER BY p.cart_add_count DESC LIMIT 5;
 
 예시 6 (다중 조건 결합 - AND):
 사용자 쿼리: "만원 이하로 살 수 있는 국산 유기농 과일 보여줘"
 사고 과정: 여러 조건 결합 -> 가격(<=10000), 원산지('국내산'), 유기농('Y'), 카테고리(과일=1) -> 모든 조건을 AND로 연결
-SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product LEFT JOIN category_tbl c ON p.item = c.item WHERE CAST(p.unit_price AS UNSIGNED) <= 10000 AND p.origin = '국내산' AND p.organic = 'Y' AND c.category_id = 1;
+SELECT p.product, p.unit_price, p.origin, s.stock, p.item FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product LEFT JOIN category_tbl c ON p.item = c.item WHERE CAST(p.unit_price AS UNSIGNED) <= 10000 AND p.origin = '국내산' AND p.organic = 'Y' AND c.category_id = 1;
 
 예시 7 (개인화 - 알러지):
 사용자 쿼리: "user001입니다. 견과류 알러지가 있는데, 먹을만한 거 추천해주세요."
 사고 과정: 사용자 정보(user_id='user001')와 알러지 정보('견과류') 확인 -> user_detail_tbl JOIN -> 알러지 정보를 바탕으로 상품명과 품목에서 해당 키워드를 제외 (`NOT LIKE`)
-SELECT p.product, p.unit_price, p.origin FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product WHERE s.stock > 0 AND p.product NOT LIKE '%견과류%' AND p.item NOT LIKE '%아몬드%' AND p.item NOT LIKE '%호두%' AND p.item NOT LIKE '%땅콩%' ORDER BY p.cart_add_count DESC LIMIT 5;
+SELECT p.product, p.unit_price, p.origin, s.stock, p.item FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product WHERE s.stock > 0 AND p.product NOT LIKE '%견과류%' AND p.item NOT LIKE '%아몬드%' AND p.item NOT LIKE '%호두%' AND p.item NOT LIKE '%땅콩%' ORDER BY p.cart_add_count DESC LIMIT 5;
 
 예시 8 (개인화 - 비건):
 사용자 쿼리: "비건을 위한 상품을 찾고 있어요."
 사고 과정: 비건 사용자는 육류/수산(4), 유제품(5) 카테고리를 피해야 함 -> 카테고리 ID를 `NOT IN`으로 제외
-SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product LEFT JOIN category_tbl c ON p.item = c.item WHERE c.category_id NOT IN (4, 5) ORDER BY p.cart_add_count DESC LIMIT 10;
+SELECT p.product, p.unit_price, p.origin, s.stock, p.item FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product LEFT JOIN category_tbl c ON p.item = c.item WHERE c.category_id NOT IN (4, 5) ORDER BY p.cart_add_count DESC LIMIT 10;
 
 예시 9 (유의어/확장 검색):
 사용자 쿼리: "해산물 좀 찾아줘"
 사고 과정: 사용자가 '해산물'을 찾고 있다. '해산물'은 '수산' 품목을 포함하는 개념이며, '육류/수산' 카테고리(ID=4)에 속한다. 따라서 category_id = 4인 상품들을 검색한다.
-SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product LEFT JOIN category_tbl c ON p.item = c.item WHERE c.category_id = 4 ORDER BY p.cart_add_count DESC LIMIT 10;
+SELECT p.product, p.unit_price, p.origin, s.stock, p.item FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product LEFT JOIN category_tbl c ON p.item = c.item WHERE c.category_id = 4 ORDER BY p.cart_add_count DESC LIMIT 10;
 
 예시 10 (의도 기반 검색):
 사용자 쿼리: "아침에 간단하게 먹을만한 거 있어?"
 사고 과정: 사용자가 '아침 식사'를 찾고 있다. 아침에는 보통 '빵'이나 '요거트', '우유' 등을 먹는다. 이는 '베이커리' 카테고리(ID=9)와 '유제품' 카테고리(ID=5)에 해당한다. 두 카테고리의 인기 상품을 추천한다.
-SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product LEFT JOIN category_tbl c ON p.item = c.item WHERE c.category_id IN (5, 9) ORDER BY p.cart_add_count DESC LIMIT 10;
+SELECT p.product, p.unit_price, p.origin, s.stock, p.item FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product LEFT JOIN category_tbl c ON p.item = c.item WHERE c.category_id IN (5, 9) ORDER BY p.cart_add_count DESC LIMIT 10;
 
 예시 11 (쿼리와 슬롯 OR 결합):
 사용자 쿼리: "조선간장"
 추출된 정보: - 카테고리: 조미료
 사고 과정: 사용자는 '조선간장'을 직접 검색하고 있지만, '조미료' 카테고리 정보도 함께 제공되었습니다. 이는 '조선간장'을 포함하여 다른 조미료 상품들도 함께 보고 싶다는 의도일 수 있습니다. 따라서 상품명/품목에 '조선간장'이 포함되거나, 또는 카테고리가 '조미료'(ID=7)인 경우를 모두 검색합니다.
-SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product LEFT JOIN category_tbl c ON p.item = c.item WHERE (p.product LIKE '%조선간장%' OR p.item LIKE '%조선간장%') OR c.category_id = 7;
+SELECT p.product, p.unit_price, p.origin, s.stock, p.item FROM product_tbl p LEFT JOIN stock_tbl s ON p.product = s.product LEFT JOIN category_tbl c ON p.item = c.item WHERE (p.product LIKE '%조선간장%' OR p.item LIKE '%조선간장%') OR c.category_id = 7;
 
 # 중요 규칙:
 1. 항상 `LEFT JOIN`을 사용하여 모든 관련 테이블을 연결하세요.
@@ -479,9 +479,10 @@ SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN s
                 for row in results:
                     formatted_results.append({
                         'sku': row.get('product'), 'name': row.get('product'),
-                        'price': float(row.get('unit_price', 0.0) or 0.0), 
+                        'price': float(row.get('unit_price', 0.0) or 0.0),
                         'stock': int(row.get('stock', 0) or 0),
-                        'origin': row.get('origin'), 'score': 0.9
+                        'origin': row.get('origin'), 'score': 0.9,
+                        'category': row.get('item', '기타')
                     })
                 return formatted_results
         except Error as e:
@@ -693,7 +694,7 @@ SELECT p.product, p.unit_price, p.origin, s.stock FROM product_tbl p LEFT JOIN s
             'sku': c.get('name', ''), 'name': c.get('name', ''),
             'price': c.get('price', 0.0), 'stock': c.get('stock', 0),
             'score': c.get('similarity_score', 0.5), 'origin': c.get('origin', ''),
-            'category': c.get('category_text', '')
+            'category': c.get('category', '')  # 수정: category_text → category
         } for c in candidates]
 
 _search_engine = None

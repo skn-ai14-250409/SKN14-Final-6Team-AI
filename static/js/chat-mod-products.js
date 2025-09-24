@@ -27,12 +27,42 @@
       const selectHtml =
         '<div class="flex items-center justify-between mb-3">'
         +   '<span class="text-sm font-medium text-gray-700">정렬 기준</span>'
-        +   `<select id="${elementId}" class="sort-select text-sm border border-gray-300 rounded px-2 py-1 bg-white focus:border-green-500 focus:outline-none">`
+        +   '<div class="flex items-center">' // 추가: 드롭박스들을 감쌀 컨테이너
+        +     '<!-- CATEGORY_FILTER_PLACEHOLDER -->' // 추가: 카테고리 필터 자리표시자
+        +     `<select id="${elementId}" class="sort-select text-sm border border-gray-300 rounded px-2 py-1 bg-white focus:border-green-500 focus:outline-none">`
         +   sortOptions.map((option) =>
               `<option value="${option.value}" ${currentSortBy === option.value ? 'selected' : ''}>${option.label}</option>`
             ).join('')
         +   '</select>'
+        +   '</div>' // 추가: 드롭박스 컨테이너 닫기
         + '</div>';
+
+      return {
+        html: selectHtml,
+        bindEvent: (container) => {
+          const selectElement = container.querySelector(`#${elementId}`);
+          if (selectElement) {
+            selectElement.addEventListener('change', (e) => {
+              onChangeCallback(e.target.value);
+            });
+          }
+        }
+      };
+    },
+    // 추가: 카테고리 필터 드롭박스 생성 함수
+    createCategoryFilterBox(bot, products, selectedCategory, onChangeCallback, elementId){
+      console.log('재료 데이터 확인:', products); // 디버그: 재료 데이터 구조 확인
+      const categories = ['전체'];
+      const uniqueCategories = [...new Set(products.map(p => p.category).filter(Boolean))]; // 수정: category_text → category
+      console.log('카테고리 필드들:', products.map(p => p.category)); // 디버그: category 필드 확인
+      console.log('고유 카테고리들:', uniqueCategories); // 디버그: 고유 카테고리 확인
+      categories.push(...uniqueCategories);
+
+      const selectHtml = `<select id="${elementId}" class="category-filter text-sm border border-gray-300 rounded px-2 py-1 bg-white focus:border-green-500 focus:outline-none mr-2">` +
+        categories.map(category =>
+          `<option value="${category}" ${selectedCategory === category ? 'selected' : ''}>${category}</option>`
+        ).join('') +
+        '</select>';
 
       return {
         html: selectHtml,
@@ -55,7 +85,8 @@
         renderItemCallback,
         onPageChange,
         bulkActionConfig = null,
-        sortConfig = null
+        sortConfig = null,
+        categoryConfig = null // 추가: 카테고리 설정 구조분해할당
       } = config;
 
       if (!listElement || !Array.isArray(dataArray)) return;
@@ -64,9 +95,21 @@
       if (sortConfig) {
         const sortContainer = document.createElement('div');
         sortContainer.className = 'sort-container mb-0 p-1 bg-gray-50 rounded-lg';
-        sortContainer.innerHTML = sortConfig.html;
+
+        // 추가: 카테고리 필터를 정렬 드롭박스 HTML에 삽입
+        let finalHtml = sortConfig.html;
+        if (categoryConfig) {
+          finalHtml = finalHtml.replace('<!-- CATEGORY_FILTER_PLACEHOLDER -->', categoryConfig.html);
+        }
+
+        sortContainer.innerHTML = finalHtml;
         listElement.appendChild(sortContainer);
         if (sortConfig.bindEvent) sortConfig.bindEvent(sortContainer);
+
+        // 추가: 카테고리 필터 이벤트 바인딩
+        if (categoryConfig && categoryConfig.bindEvent) {
+          categoryConfig.bindEvent(sortContainer);
+        }
       }
 
       const totalItems = dataArray.length;
@@ -126,20 +169,32 @@
     },
     updateProductsList(bot, products){
       const section=document.getElementById('productsSection');
-      if (products) { bot.productCandidates = products; bot.productPage = 0; bot.productSortBy = 'popular'; }
+      if (products) { bot.productCandidates = products; bot.productPage = 0; bot.productSortBy = 'popular'; bot.selectedCategory = '전체'; } // 추가: 카테고리 초기화
       if (!bot.productCandidates || bot.productCandidates.length === 0) { section.classList.add('hidden'); return; }
       section.classList.remove('hidden');
       ChatProducts._renderProductPage(bot);
     },
     handleProductSortChange(bot, newSortBy){ bot.productSortBy = newSortBy; bot.productPage = 0; ChatProducts._renderProductPage(bot); },
+    // 추가: 카테고리 필터 변경 핸들러
+    handleCategoryFilterChange(bot, newCategory){ bot.selectedCategory = newCategory; bot.productPage = 0; ChatProducts._renderProductPage(bot); },
     _renderProductPage(bot){
-      const sortedProducts = ChatProducts.sortProducts(bot.productCandidates, bot.productSortBy);
+      // 추가: 카테고리 필터링 로직
+      let filteredProducts = bot.productCandidates;
+      if (bot.selectedCategory && bot.selectedCategory !== '전체') {
+        filteredProducts = bot.productCandidates.filter(p => p.category === bot.selectedCategory); // 수정: category_text → category
+      }
+
+      const sortedProducts = ChatProducts.sortProducts(filteredProducts, bot.productSortBy);
+
+      // 추가: 카테고리 필터 드롭박스 생성
+      const categoryConfig = ChatProducts.createCategoryFilterBox(bot, bot.productCandidates, bot.selectedCategory || '전체', function(v){ ChatProducts.handleCategoryFilterChange(bot,v); }, 'productCategoryFilter');
       const sortConfig = ChatProducts.createSortSelectBox(bot, bot.productSortBy, function(v){ ChatProducts.handleProductSortChange(bot,v); }, 'productSortSelect');
       ChatProducts._renderPaginatedList(bot, {
         listElement: document.getElementById('productsList'),
         dataArray: sortedProducts,
         currentPage: bot.productPage,
         itemsPerPage: bot.PRODUCTS_PER_PAGE,
+        categoryConfig: categoryConfig, // 추가: 카테고리 설정 전달
         renderItemCallback: function(product){
           const card = document.createElement('div');
           card.className = 'product-card';
