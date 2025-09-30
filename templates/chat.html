@@ -84,14 +84,29 @@
                 <div class="center-panel">
                     <div class="chat-container" id="chatContainer">
 
-                        <div class="chat-header">
-                            <h2 class="text-2xl font-bold text-gray-800">{{ name }} 님 <span id="membershipBadge" class="align-middle ml-2 text-xs"></span></h2>
-                            <div class="flex items-center space-x-4 mt-2">
-                                <div id="sessionInfo" class="text-xs text-gray-500"></div>
-                                <button id="clearChat" class="text-xs text-red-500 hover:underline">
-                                    <i class="fas fa-trash mr-1"></i>채팅 지우기
-                                </button>
-                            </div>
+                    <div class="chat-header relative">
+                        <h2 class="text-2xl font-bold text-gray-800">
+                            {{ name }} 님
+                            <span id="membershipBadge" class="align-middle ml-2 text-xs"></span>
+                        </h2>
+
+                        <div class="flex items-center space-x-4 mt-2">
+                            <div id="sessionInfo" class="text-xs text-gray-500"></div>
+                            <button id="clearChat" class="text-xs text-red-500 hover:underline">
+                            <i class="fas fa-trash mr-1"></i>채팅 지우기
+                            </button>
+                        </div>
+
+                        <div class="absolute top-8 right-8 z-10">
+                            <span class="info is-right" aria-label="채팅 유의사항" tabindex="0">i
+                            <span class="tooltip" role="tooltip">
+                                채팅으로 레시피/재료/장바구니를 빠르게 찾아보세요!<br><br>
+                                예: “비건 파스타 레시피”, “사과 추천”, “장바구니 보여줘”<br>
+                                    “환불하고 싶어”, “이용약관에 대해 알고 싶어”<br><br>
+                                ⚠️ 개인정보 입력은 삼가주세요 (답변은 참고용)
+                            </span>
+                            </span>
+                        </div>
                         </div>
 
                         <div class="chat-messages" id="messages">
