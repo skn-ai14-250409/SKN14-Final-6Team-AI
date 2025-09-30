@@ -77,13 +77,13 @@
 ## 📖 주요 기능
 
 ### 1. AI 챗봇 쇼핑
-![사과검색.png](static/images/사과검색.png)
-- **자연어 상품 검색**: "유기농 사과 2kg 주문하고 싶어요"
+![사과구매하고싶어요.png](static/images/사과구매하고싶어요.png)
+- **자연어 상품 검색**: "사과 구매하고 싶어"
 - **원터치 주문**: 대화만으로 장바구니 담기부터 결제까지
 - **재고 실시간 확인**: 품절 상품 대체재 자동 제안
 
 ### 2. 비전 AI 레시피 검색
-![사과샐러드레시피검색.png](static/images/사과샐러드레시피검색.png)
+![사과샐러드레시피검검색.png](static/images/사과샐러드레시피검검색.png)
 - **이미지 기반 레시피 탐색**: 음식 사진 업로드로 레시피 찾기
 - **재료 자동 매칭**: 레시피 재료와 쇼핑몰 상품 연결
 
@@ -189,23 +189,19 @@
 
 ### ​​ Back-End
 <p>
-  <img src="https://img.shields.io/badge/Django-092E20?style=for-the-badge&logo=django&logoColor=white"/>
+
   <img src="https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white"/>
   <img src="https://img.shields.io/badge/MySQL-4479A1?style=for-the-badge&logo=mysql&logoColor=white"/>
   <img src="https://img.shields.io/badge/AWS-FF9900?style=for-the-badge&logo=amazonaws&logoColor=white"/>
   <img src="https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white"/>
-  <img src="https://img.shields.io/badge/GitHub-181717?style=for-the-badge&logo=github&logoColor=white"/>
 </p>
 
 ### Model & AI
 <p>
   <img src="https://img.shields.io/badge/OpenAI-412991?style=for-the-badge&logo=openai&logoColor=white"/>
   <img src="https://img.shields.io/badge/LangChain-2E8B57?style=for-the-badge&logo=langchain&logoColor=white"/>
-  <img src="https://img.shields.io/badge/LangGraph-2E8B57?style=for-the-badge&logo=langgraph&logoColor=white"/>
   <img src="https://img.shields.io/badge/Pinecone-339933?style=for-the-badge&logo=pinecone&logoColor=white"/>
-  <img src="https://img.shields.io/badge/Chroma-FF7F50?style=for-the-badge&logo=chroma&logoColor=white"/>
   <img src="https://img.shields.io/badge/Tavily-4682B4?style=for-the-badge&logo=tavily&logoColor=white"/>
-  <img src="https://img.shields.io/badge/HuggingFace-FFD21E?style=for-the-badge&logo=huggingface&logoColor=black"/>
 </p>
 
 
@@ -217,8 +213,6 @@
 | **Python** | 백엔드 언어 |
 | **LangGraph** | AI 워크플로우 관리 |
 | **MySQL** | 관계형 데이터베이스 |
-| **SQLAlchemy** | ORM |
-| **Pydantic** | 데이터 검증 |
 | **JWT** | 인증/인가 |
 
 ### 🤖 AI/ML
@@ -236,17 +230,11 @@
 | **HTML5** | 마크업 |
 | **Tailwind CSS** | UI 프레임워크 |
 | **JavaScript** | 클라이언트 로직 |
-| **Font Awesome** | 아이콘 |
-| **Jinja2** | 템플릿 엔진 |
 
 ### 🛠️ DevOps & Tools
 | 기술 | 용도 |
 |------|-----|
 | **Uvicorn** | ASGI 서버 |
-| **Pytest** | 테스트 프레임워크 |
-| **Black** | 코드 포맷터 |
-| **Flake8** | 린터 |
-| **Structlog** | 구조화된 로깅 |
 
 ### 📦 External APIs
 | 서비스 | 용도 |
