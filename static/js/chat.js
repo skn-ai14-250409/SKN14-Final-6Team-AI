@@ -426,7 +426,7 @@ class ChatBot {
   showSmartLoading(message){
   const msg = (message || '').toLowerCase().replace(/\s+/g, ' ').trim();
   const has = (rx) => rx.test(msg);
-  
+
   if (has(/문의|배송|환불|교환|반품|취소|지연|파손|누락|탈퇴|고객(센터|지원)|a\/?s|as/)) {
     return this.showCustomLoading('cs','고객지원 정보를 찾고 있습니다...','dots');
   }
@@ -434,7 +434,7 @@ class ChatBot {
     has(/장바구니\s*(보여줘|보기|열어|열기|확인|확인해줘|목록|페이지|비워|비워줘|비우기|삭제|제거|수정|변경)/) ||
     has(/(내\s*)?장바구니(를)?\s*(봐|보여|열어|확인)/) ||
     has(/주문서\s*(보여줘|보기|확인)/) ||
-    has(/(checkout|체크아웃)|결제\s*(하기|페이지|창)/)
+    has(/(checkout|체크아웃)|결제|구매\s*(하기|페이지|창)/)
   ) {
     return this.showCustomLoading('cart','장바구니 정보를 확인 중입니다...','dots');
   }
