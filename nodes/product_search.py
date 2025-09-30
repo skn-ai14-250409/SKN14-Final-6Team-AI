@@ -81,6 +81,7 @@ class ProductSearchEngine:
         self.tfidf_vectorizer = None
         self.tfidf_matrix = None
         self.db_schema = self._get_db_schema()
+        self._load_data_from_db
     
     def _get_db_schema(self) -> str:
         return """

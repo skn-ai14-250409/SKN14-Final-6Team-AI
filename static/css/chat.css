@@ -638,3 +638,41 @@ body {
         min-height: 400px;
     }
 }
+
+/* i 아이콘 */
+.info{
+  position:relative; display:inline-flex; align-items:center; justify-content:center;
+  width:25px; height:25px; margin-left:6px; border:1px solid #d1d5db; border-radius:50%;
+  font:1000 12px/1 sans-serif; color:#4b5563; background:#fff; cursor:default;
+}
+
+/* 기본 툴팁 상자 */
+.info .tooltip{
+  position:absolute; top:calc(100% + 8px); left:50%;
+  transform:translateX(-50%) translateY(6px) scale(0.98);
+  background:#ffffff; color:#5c5c5c; padding:10px 12px; border-radius:10px;
+  font-size:12px; line-height:1.4; white-space:nowrap; box-shadow:0 8px 22px rgba(0,0,0,.2);
+  opacity:0; visibility:hidden; transition:opacity .15s ease, transform .15s ease; z-index:1000;
+  font-weight: normal;
+}
+
+/* 호버/포커스 시 나타나기 (나갈 때 자연스럽게 사라짐) */
+.info:hover .tooltip,
+.info:focus .tooltip,
+.info .tooltip:hover{
+  opacity:1; visibility:visible; transform:translateX(-50%) translateY(0) scale(1);
+}
+
+/* 오른쪽 끝에 붙여 쓸 때는 중앙 정렬 대신 우측 정렬 */
+.info.is-right .tooltip{
+  left:auto; right:0;
+  transform:translateY(6px) scale(0.98);
+}
+.info.is-right .tooltip::after{
+  left:auto; right:10px; transform:none;
+}
+.info.is-right:hover .tooltip,
+.info.is-right:focus .tooltip,
+.info.is-right .tooltip:hover{
+  transform:translateY(0) scale(1);
+}
