@@ -562,33 +562,43 @@ def _search_with_tavily_filtered(query: str, user_preferences: Dict[str, Any] = 
         client = TavilyClient(api_key=TAVILY_API_KEY)
 
         logger.info(f"히스토리 기반 Tavily 검색 실행: '{query}' (제외 URL: {len(exclude_urls)}개)")
+     
+        vegan_mode = bool(user_preferences and user_preferences.get("vegan"))
+        vegan_terms = ["비건","vegan","plant-based","dairy-free","egg-free"] if vegan_mode else []
+        enhanced_query = " ".join([query, "레시피"] + vegan_terms).strip()
 
-        exclusion_terms = ["-youtube", "-instagram", "-facebook", "-tiktok", "-blog.naver.com"]
+        include_domains = [
+            "10000recipe.com", "minimalistbaker.com", "www.bbcgoodfood.com",
+            "www.seriouseats.com", "www.allrecipes.com", "www.loveandlemons.com"
+        ]
+        exclude_domains = ["youtube.com","instagram.com","facebook.com","tiktok.com", "blog.naver.com"]
 
-        if user_preferences:
-            if user_preferences.get("vegan", False):
-                exclusion_terms.extend("+비건")
-                logger.info("비건 사용자 - 검색 쿼리에 +비건 추가")
-
-            if user_preferences.get("allergy"):
-                allergy_items = user_preferences["allergy"].split(",")
-                for item in allergy_items:
-                    exclusion_terms.append(f"-{item.strip()}")
-                logger.info(f"알러지 기반 제외 키워드 추가: {allergy_items}")
-
-        enhanced_query = f"{query} 레시피 {' '.join(exclusion_terms)}"
-
-        search_result = client.search(
+        # 1차: 화이트리스트 우선
+        res = client.search(
             query=enhanced_query,
             search_depth="basic",
-            max_results=30
+            max_results=30,
+            include_domains=include_domains,
+            exclude_domains=exclude_domains,
+            include_raw_content=True,
+            # time_range="year",  # 선택: 최근 1년
         )
+        results = res.get("results", [])
 
-        search_results_list = search_result.get("results", [])
+        # 2차 폴백: include 해제하고 확장
+        if len(results) < 5:
+            res2 = client.search(
+                query=enhanced_query,
+                search_depth="advanced",  # 여기서만 비용↑
+                max_results=30,
+                exclude_domains=exclude_domains,
+                include_raw_content=True,
+            )
+            results += res2.get("results", [])
 
         validated_results = []
 
-        for res in search_results_list:
+        for res in results:
             url = res.get("url", "")
 
             if url in exclude_urls:
@@ -668,32 +678,60 @@ def _search_with_tavily(query: str, user_preferences: Dict[str, Any] = None) -> 
         
         logger.info(f"Tavily 검색 실행: '{query}'")
         
-        exclusion_terms = ["-youtube", "-instagram", "-facebook", "-tiktok", "-blog.naver.com", "-m.blog.naver.com"]
+        vegan_mode = bool(user_preferences and user_preferences.get("vegan"))
+        vegan_terms = ["비건","vegan","plant-based","dairy-free","egg-free"] if vegan_mode else []
+        enhanced_query = " ".join([query, "레시피"] + vegan_terms).strip()
 
-        if user_preferences:
-            if user_preferences.get("vegan", False):
-                exclusion_terms.extend("+비건")
-                logger.info("비건 사용자 - 검색 쿼리에 +비건 추가")
+        include_domains = [
+            "10000recipe.com", "minimalistbaker.com", "www.bbcgoodfood.com",
+            "www.seriouseats.com", "www.allrecipes.com", "www.loveandlemons.com"
+        ]
+        exclude_domains = ["youtube.com","instagram.com","facebook.com","tiktok.com", "blog.naver.com"]
 
-            if user_preferences.get("allergy"):
-                allergy_items = user_preferences["allergy"].split(",")
-                for item in allergy_items:
-                    exclusion_terms.append(f"-{item.strip()}")
-                logger.info(f"알러지 기반 제외 키워드 추가: {allergy_items}")
-        
-        enhanced_query = f"{query} 레시피 {' '.join(exclusion_terms)}"
-        
-        search_result = client.search(
+        # 1차: 화이트리스트 우선
+        res = client.search(
             query=enhanced_query,
             search_depth="basic",
-            max_results=30 
+            max_results=30,
+            include_domains=include_domains,
+            exclude_domains=exclude_domains,
+            include_raw_content=True,
+            # time_range="year",  # 선택: 최근 1년
         )
+        results = res.get("results", [])
+
+        # 2차 폴백: include 해제하고 확장
+        if len(results) < 5:
+            res2 = client.search(
+                query=enhanced_query,
+                search_depth="advanced",  # 여기서만 비용↑
+                max_results=30,
+                exclude_domains=exclude_domains,
+                include_raw_content=True,
+            )
+            results += res2.get("results", [])
+        # exclusion_terms = ["-youtube", "-instagram", "-facebook", "-tiktok", "-blog.naver.com", "-m.blog.naver.com", "-pinterest", "-reddit"]
+
+        # if user_preferences:
+        #     if user_preferences.get("allergy"):
+        #         allergy_items = user_preferences["allergy"].split(",")
+        #         for item in allergy_items:
+        #             exclusion_terms.append(f"-{item.strip()}")
+        #         logger.info(f"알러지 기반 제외 키워드 추가: {allergy_items}")
         
-        search_results_list = search_result.get("results", [])
+        # enhanced_query = f"{query} 레시피 {' '.join(exclusion_terms)}"
+        
+        # search_result = client.search(
+        #     query=enhanced_query,
+        #     search_depth="basic",
+        #     max_results=30 
+        # )
+        
+        # search_results_list = search_result.get("results", [])
 
         validated_results = []
         
-        for res in search_results_list:
+        for res in results:
             url = res.get("url", "")
             
             if not url or not _is_crawlable_url(url):
