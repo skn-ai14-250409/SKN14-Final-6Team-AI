@@ -151,7 +151,7 @@
 ---
 
 ## 🎬 시연영상
-[유튜브 링크 첨부]
+[[Final_Project_Qook](https://youtu.be/-p2A2a9yEa8)]
 
 ---
 
