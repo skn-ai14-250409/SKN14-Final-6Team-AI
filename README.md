@@ -4,14 +4,10 @@
 
 ## 👥 팀 구성 및 역할
 
-| 이름 | 주요 담당 |
-|---|---|
-| 하종수 (PM) | 프로젝트 총괄, 코드 병합·디버깅, AWS 배포 |
-| 김광령 | 텍스트·이미지 기반 레시피/상품 검색 |
-| 김성민 | 데이터베이스 구성, 마이페이지 제작, AWS 배포 |
-| 문상희 | LangGraph 라우팅, 이미지 기반 환불, 멀티턴 채팅 |
-| 서은선 | 데이터 수집, Vector DB · RAG |
-| 송유나 | 랜딩/챗봇 UI, 이미지 기반 환불 |
+| **하종수 (PM)** | **김광령** | **김성민** | **문상희** | **서은선** | **송유나** |
+|:---:|:---:|:---:|:---:|:---:|:---:|
+| <img src="static/images/종수.png" width="6500" alt="하종수"> | <img src="static/images/광령.png" width="7500" alt="김광령"> | <img src="static/images/성민.png" width="6700" alt="김성민"> | <img src="static/images/상히.png" width="5500" alt="문상희"> | <img src="static/images/은선.png" width="7200" alt="서은선"> | <img src="static/images/유나.png" width="13000" alt="송유나"> |
+| 프로젝트 총괄, 코드 병합·디버깅, AWS 배포 | 텍스트·이미지 기반 레시피/상품 검색 | 데이터베이스 구성, 마이페이지 제작, AWS 배포 | LangGraph 라우팅, 이미지 기반 환불, 멀티턴 채팅 | 데이터 수집, Vector DB · RAG | 랜딩/챗봇 UI, 이미지 기반 환불 |
 
 ---
 
@@ -151,7 +147,7 @@
 ---
 
 ## 🎬 시연영상
-[유튜브 링크 첨부]
+[[Final_Project_Qook](https://youtu.be/-p2A2a9yEa8)]
 
 ---
 
